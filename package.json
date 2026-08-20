@@ -1,0 +1,46 @@
+{
+  "name": "nightfall-gacha-export",
+  "version": "0.1.0",
+  "description": "《夜幕之下》PC 端抽卡统计捕获与导出工具",
+  "main": "src/main/main.js",
+  "author": "MILImusic <149888220+MILImusic@users.noreply.github.com>",
+  "license": "MIT",
+  "private": false,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test",
+    "lint": "node --check src/main/main.js && node --check src/main/capture.js && node --check src/main/store.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js",
+    "build:win": "electron-builder --win zip --x64"
+  },
+  "build": {
+    "appId": "io.github.milimusic.nightfall-gacha-export",
+    "productName": "夜幕之下抽卡记录导出",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "package.json",
+      "LICENSE",
+      "README.md"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/capture.ps1",
+        "to": "capture.ps1"
+      },
+      {
+        "from": "resources/paginate.ps1",
+        "to": "paginate.ps1"
+      }
+    ],
+    "win": {
+      "target": "zip"
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12"
+  }
+}

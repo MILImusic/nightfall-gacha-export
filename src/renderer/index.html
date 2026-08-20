@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>夜幕之下抽卡记录导出</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">REIGN OF NIGHTFALL</p>
+          <h1>契约记录导出</h1>
+          <p class="subtitle">本地被动捕获，不读取账号凭据，不上传数据。</p>
+        </div>
+        <div class="actions">
+          <button id="exportJson" class="secondary">导出 JSON</button>
+          <button id="exportCsv" class="secondary">导出 CSV</button>
+        </div>
+      </header>
+
+      <section class="capture-panel">
+        <div class="step-marker" id="stepMarker">1</div>
+        <div class="capture-copy">
+          <h2 id="captureTitle">准备捕获</h2>
+          <p id="captureHint">点击开始，然后在游戏里进入“契约记录 → 全部记录”。</p>
+        </div>
+        <button id="captureButton" class="primary">开始捕获</button>
+      </section>
+
+      <div class="shortcut-tip">
+        <kbd>F8</kbd>
+        <span>打开“全部记录”后，把鼠标停在右侧下一页箭头上并按 F8。工具会自动翻完全部页面并结束捕获。</span>
+      </div>
+      <p id="status" role="status"></p>
+
+      <section class="summary">
+        <div><span>最近捕获</span><strong id="capturedAt">—</strong></div>
+        <div><span>记录总数</span><strong id="recordCount">0</strong></div>
+        <div><span>捕获次数</span><strong id="captureCount">0</strong></div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <h2>最近的契约记录</h2>
+          <p>名称表尚未建立时显示游戏内部结果 ID，原始时间与重复记录都会保留。</p>
+        </div>
+        <div id="emptyState" class="empty">还没有记录。完成一次全量捕获后会显示在这里。</div>
+        <div class="table-wrap" id="tableWrap" hidden>
+          <table>
+            <thead><tr><th>结果 ID</th><th>卡池 ID</th><th>时间</th></tr></thead>
+            <tbody id="recordRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>

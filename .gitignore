@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+coverage/
+.DS_Store
+*.log
+*.etl
+*.pcap
+*.pcapng
+userData/
+captures/
+exports/
+.env
+.env.*
+!.env.example
