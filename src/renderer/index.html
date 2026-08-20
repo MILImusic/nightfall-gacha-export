@@ -46,7 +46,14 @@
           </div>
         </div>
         <nav id="poolFilters" class="pool-filters" aria-label="按卡池筛选"></nav>
-        <div id="raritySummary" class="rarity-summary" hidden></div>
+        <div id="previewPanel" class="preview-panel" hidden>
+          <div id="raritySummary" class="rarity-summary"></div>
+          <div class="pagination">
+            <button type="button" id="previousPreviewPage" class="secondary">上一页</button>
+            <span id="previewPageStatus">第 1 / 1 页</span>
+            <button type="button" id="nextPreviewPage" class="secondary">下一页</button>
+          </div>
+        </div>
         <div id="emptyState" class="empty">还没有记录。完成一次全量捕获后会显示在这里。</div>
         <div class="detail-panel" id="detailPanel" hidden>
           <div class="table-wrap">

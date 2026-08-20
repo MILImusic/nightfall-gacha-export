@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
@@ -46,6 +46,7 @@ function createWindow() {
     minWidth: 840,
     minHeight: 600,
     backgroundColor: "#111318",
+    autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -108,6 +109,7 @@ ipcMain.handle("data:export-csv", async () => {
 });
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

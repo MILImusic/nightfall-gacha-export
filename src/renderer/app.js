@@ -7,16 +7,23 @@ const emptyState = document.querySelector("#emptyState");
 const detailPanel = document.querySelector("#detailPanel");
 const recordRows = document.querySelector("#recordRows");
 const poolFilters = document.querySelector("#poolFilters");
+const previewPanel = document.querySelector("#previewPanel");
 const raritySummary = document.querySelector("#raritySummary");
+const previewPageStatus = document.querySelector("#previewPageStatus");
+const previousPreviewPage = document.querySelector("#previousPreviewPage");
+const nextPreviewPage = document.querySelector("#nextPreviewPage");
 const pageStatus = document.querySelector("#pageStatus");
 const previousPage = document.querySelector("#previousPage");
 const nextPage = document.querySelector("#nextPage");
 const PAGE_SIZE = 10;
+const PREVIEW_SIX_SIZE = 6;
+const PREVIEW_FIVE_SIZE = 12;
 let currentStore = null;
 let activePool = "all";
 let proxyConnected = false;
 let viewMode = "preview";
 let detailPage = 1;
+let previewPage = 1;
 
 function recordsForActivePool() {
   if (!currentStore) return [];
@@ -57,12 +64,29 @@ function renderRaritySummary() {
   const fives = records.filter((record) => record.rarity === 5);
   raritySummary.replaceChildren();
 
+  const fiveCounts = new Map();
+  for (const record of fives) {
+    const key = `${record.name ?? record.resultId} · ${record.character ?? "未知"}`;
+    fiveCounts.set(key, (fiveCounts.get(key) ?? 0) + 1);
+  }
+  const fiveEntries = [...fiveCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const totalPages = Math.max(
+    1,
+    Math.ceil(sixes.length / PREVIEW_SIX_SIZE),
+    Math.ceil(fiveEntries.length / PREVIEW_FIVE_SIZE),
+  );
+  previewPage = Math.min(previewPage, totalPages);
+  const sixOffset = (previewPage - 1) * PREVIEW_SIX_SIZE;
+  const fiveOffset = (previewPage - 1) * PREVIEW_FIVE_SIZE;
+  const visibleSixes = sixes.slice(sixOffset, sixOffset + PREVIEW_SIX_SIZE);
+  const visibleFives = fiveEntries.slice(fiveOffset, fiveOffset + PREVIEW_FIVE_SIZE);
+
   const sixBlock = document.createElement("div");
   sixBlock.className = "rarity-block six-star-block";
   sixBlock.innerHTML = `<div class="rarity-heading"><span>六星</span><strong>${sixes.length}</strong></div>`;
   const sixList = document.createElement("div");
   sixList.className = "six-star-list";
-  for (const record of sixes) {
+  for (const record of visibleSixes) {
     const card = document.createElement("article");
     card.className = "six-star-card";
     const orderWarning = record.exactOrder ? "" : " · 顺序待重新获取校准";
@@ -75,27 +99,27 @@ function renderRaritySummary() {
     sixList.append(card);
   }
   if (sixes.length === 0) sixList.textContent = "该范围内还没有六星记录";
+  else if (visibleSixes.length === 0) sixList.textContent = "本页没有六星记录";
   sixBlock.append(sixList);
 
-  const fiveCounts = new Map();
-  for (const record of fives) {
-    const key = `${record.name ?? record.resultId} · ${record.character ?? "未知"}`;
-    fiveCounts.set(key, (fiveCounts.get(key) ?? 0) + 1);
-  }
   const fiveBlock = document.createElement("div");
   fiveBlock.className = "rarity-block five-star-block";
   fiveBlock.innerHTML = `<div class="rarity-heading"><span>五星</span><strong>${fives.length}</strong></div>`;
   const fiveList = document.createElement("div");
   fiveList.className = "five-star-list";
-  for (const [name, count] of [...fiveCounts.entries()].sort((a, b) => b[1] - a[1])) {
+  for (const [name, count] of visibleFives) {
     const chip = document.createElement("span");
     chip.textContent = `${name} ×${count}`;
     fiveList.append(chip);
   }
   if (fives.length === 0) fiveList.textContent = "该范围内还没有五星记录";
+  else if (visibleFives.length === 0) fiveList.textContent = "本页没有五星记录";
   fiveBlock.append(fiveList);
   raritySummary.append(sixBlock, fiveBlock);
-  raritySummary.hidden = viewMode !== "preview" || records.length === 0;
+  previewPageStatus.textContent = `第 ${previewPage} / ${totalPages} 页`;
+  previousPreviewPage.disabled = previewPage <= 1;
+  nextPreviewPage.disabled = previewPage >= totalPages;
+  previewPanel.hidden = viewMode !== "preview" || records.length === 0;
 }
 
 function renderPoolFilters(store) {
@@ -147,6 +171,7 @@ poolFilters.addEventListener("click", (event) => {
   if (!button) return;
   activePool = button.dataset.poolId;
   detailPage = 1;
+  previewPage = 1;
   renderPoolFilters(currentStore);
   renderRaritySummary();
   renderRows();
@@ -157,6 +182,7 @@ document.querySelector(".view-switch").addEventListener("click", (event) => {
   if (!button) return;
   viewMode = button.dataset.view;
   detailPage = 1;
+  previewPage = 1;
   for (const item of document.querySelectorAll(".view-switch button")) {
     const active = item.dataset.view === viewMode;
     item.classList.toggle("active", active);
@@ -174,6 +200,16 @@ previousPage.addEventListener("click", () => {
 nextPage.addEventListener("click", () => {
   detailPage += 1;
   renderRows();
+});
+
+previousPreviewPage.addEventListener("click", () => {
+  previewPage = Math.max(1, previewPage - 1);
+  renderRaritySummary();
+});
+
+nextPreviewPage.addEventListener("click", () => {
+  previewPage += 1;
+  renderRaritySummary();
 });
 
 captureButton.addEventListener("click", async () => {
