@@ -40,15 +40,26 @@
       <section>
         <div class="section-heading">
           <h2>六星与五星</h2>
+          <div class="view-switch" role="tablist" aria-label="记录显示方式">
+            <button type="button" class="active" data-view="preview" role="tab" aria-selected="true">预览</button>
+            <button type="button" data-view="details" role="tab" aria-selected="false">详细</button>
+          </div>
         </div>
         <nav id="poolFilters" class="pool-filters" aria-label="按卡池筛选"></nav>
         <div id="raritySummary" class="rarity-summary" hidden></div>
         <div id="emptyState" class="empty">还没有记录。完成一次全量捕获后会显示在这里。</div>
-        <div class="table-wrap" id="tableWrap" hidden>
-          <table>
-            <thead><tr><th>风格</th><th>星级</th><th>保底位置</th><th>时间</th></tr></thead>
-            <tbody id="recordRows"></tbody>
-          </table>
+        <div class="detail-panel" id="detailPanel" hidden>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>风格</th><th>星级</th><th>保底位置</th><th>时间</th></tr></thead>
+              <tbody id="recordRows"></tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button type="button" id="previousPage" class="secondary">上一页</button>
+            <span id="pageStatus">第 1 / 1 页</span>
+            <button type="button" id="nextPage" class="secondary">下一页</button>
+          </div>
         </div>
       </section>
     </main>

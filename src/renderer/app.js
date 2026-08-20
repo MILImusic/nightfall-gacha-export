@@ -4,13 +4,19 @@ const captureHint = document.querySelector("#captureHint");
 const stepMarker = document.querySelector("#stepMarker");
 const status = document.querySelector("#status");
 const emptyState = document.querySelector("#emptyState");
-const tableWrap = document.querySelector("#tableWrap");
+const detailPanel = document.querySelector("#detailPanel");
 const recordRows = document.querySelector("#recordRows");
 const poolFilters = document.querySelector("#poolFilters");
 const raritySummary = document.querySelector("#raritySummary");
+const pageStatus = document.querySelector("#pageStatus");
+const previousPage = document.querySelector("#previousPage");
+const nextPage = document.querySelector("#nextPage");
+const PAGE_SIZE = 10;
 let currentStore = null;
 let activePool = "all";
 let proxyConnected = false;
+let viewMode = "preview";
+let detailPage = 1;
 
 function recordsForActivePool() {
   if (!currentStore) return [];
@@ -21,7 +27,11 @@ function recordsForActivePool() {
 
 function renderRows() {
   recordRows.replaceChildren();
-  for (const record of recordsForActivePool().filter((item) => item.rarity >= 5).slice(0, 100)) {
+  const records = recordsForActivePool().filter((item) => item.rarity >= 5);
+  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  detailPage = Math.min(detailPage, totalPages);
+  const offset = (detailPage - 1) * PAGE_SIZE;
+  for (const record of records.slice(offset, offset + PAGE_SIZE)) {
     const row = document.createElement("tr");
     row.className = `rarity-${record.rarity}`;
     const title = record.name ? `${record.name} · ${record.character}` : `结果 ${record.resultId}`;
@@ -35,6 +45,10 @@ function renderRows() {
     }
     recordRows.append(row);
   }
+  pageStatus.textContent = `第 ${detailPage} / ${totalPages} 页`;
+  previousPage.disabled = detailPage <= 1;
+  nextPage.disabled = detailPage >= totalPages;
+  detailPanel.hidden = viewMode !== "details" || recordsForActivePool().length === 0;
 }
 
 function renderRaritySummary() {
@@ -81,7 +95,7 @@ function renderRaritySummary() {
   if (fives.length === 0) fiveList.textContent = "该范围内还没有五星记录";
   fiveBlock.append(fiveList);
   raritySummary.append(sixBlock, fiveBlock);
-  raritySummary.hidden = records.length === 0;
+  raritySummary.hidden = viewMode !== "preview" || records.length === 0;
 }
 
 function renderPoolFilters(store) {
@@ -123,7 +137,6 @@ function render(store) {
     ? "—"
     : `${sixes.every((record) => record.exactOrder) ? "" : "约 "}${average.toFixed(1)} 抽`;
   emptyState.hidden = store.records.length > 0;
-  tableWrap.hidden = store.records.length === 0;
   renderPoolFilters(store);
   renderRaritySummary();
   renderRows();
@@ -133,8 +146,33 @@ poolFilters.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-pool-id]");
   if (!button) return;
   activePool = button.dataset.poolId;
+  detailPage = 1;
   renderPoolFilters(currentStore);
   renderRaritySummary();
+  renderRows();
+});
+
+document.querySelector(".view-switch").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (!button) return;
+  viewMode = button.dataset.view;
+  detailPage = 1;
+  for (const item of document.querySelectorAll(".view-switch button")) {
+    const active = item.dataset.view === viewMode;
+    item.classList.toggle("active", active);
+    item.setAttribute("aria-selected", String(active));
+  }
+  renderRaritySummary();
+  renderRows();
+});
+
+previousPage.addEventListener("click", () => {
+  detailPage = Math.max(1, detailPage - 1);
+  renderRows();
+});
+
+nextPage.addEventListener("click", () => {
+  detailPage += 1;
   renderRows();
 });
 
