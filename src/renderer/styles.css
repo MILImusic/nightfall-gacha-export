@@ -39,6 +39,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .pool-filter.active { color: #17120b; background: #c7a36a; border-color: #c7a36a; }
 .pool-filter.active strong { color: #17120b; }
 .rarity-summary { display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; margin: 0 0 18px; }
+.rarity-summary[hidden] { display: none; }
 .rarity-block { min-width: 0; padding: 18px; border: 1px solid #30343d; border-radius: 13px; background: #12151a; }
 .six-star-block { border-color: #87333b; background: linear-gradient(145deg, #281317, #12151a 58%); }
 .rarity-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; color: #b8bbc2; }
