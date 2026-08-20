@@ -12,7 +12,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 48px; }
 header { display: flex; justify-content: space-between; gap: 32px; align-items: flex-start; margin-bottom: 42px; }
 .eyebrow { color: #be9b63; font-size: 12px; letter-spacing: .24em; margin: 0 0 10px; }
 h1 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 42px; font-weight: 500; }
-.subtitle, .section-heading p { color: #8f929a; margin: 10px 0 0; }
+.subtitle { color: #8f929a; margin: 10px 0 0; }
 .actions { display: flex; gap: 10px; }
 button { border: 0; border-radius: 9px; padding: 11px 18px; cursor: pointer; transition: .18s ease; }
 button:disabled { cursor: not-allowed; opacity: .5; }
@@ -23,8 +23,6 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .step-marker { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: #28231d; color: #d9b77d; border: 1px solid #5b4930; font-weight: 700; }
 .capture-copy h2 { margin: 0 0 6px; font-size: 18px; }
 .capture-copy p { margin: 0; color: #9a9da5; }
-.shortcut-tip { display: flex; align-items: center; gap: 12px; margin: 14px 2px 0; color: #9599a2; font-size: 13px; }
-kbd { min-width: 38px; padding: 5px 9px; color: #e5c38d; text-align: center; background: #191b20; border: 1px solid #3d352a; border-bottom-width: 3px; border-radius: 6px; }
 #status { min-height: 24px; margin: 14px 2px 22px; color: #d3b57f; white-space: pre-line; }
 .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 36px; }
 .summary div { padding: 16px 18px; border-left: 2px solid #6b5537; background: #12151a; }
@@ -32,7 +30,6 @@ kbd { min-width: 38px; padding: 5px 9px; color: #e5c38d; text-align: center; bac
 .summary strong { font-size: 18px; font-weight: 600; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; font-size: 20px; }
-.section-heading p { font-size: 13px; }
 .pool-filters { display: flex; flex-wrap: wrap; gap: 9px; margin: 0 0 16px; }
 .pool-filter { display: flex; gap: 8px; align-items: center; padding: 8px 13px; color: #aaaeb7; background: #15181e; border: 1px solid #2d3139; border-radius: 999px; }
 .pool-filter strong { color: #d7b477; font-variant-numeric: tabular-nums; }
