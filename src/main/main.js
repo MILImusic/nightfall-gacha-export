@@ -47,6 +47,7 @@ function createWindow() {
     minWidth: 840,
     minHeight: 600,
     backgroundColor: "#111318",
+    icon: resourcePath("icon.png"),
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -63,10 +64,11 @@ ipcMain.handle("history:fetch", async () => {
   if (fetching) throw new Error("正在获取记录，请稍候");
   fetching = true;
   try {
-    const capture = await proxy.fetchAll({ onProgress: (progress) => mainWindow?.webContents.send("history:progress", progress) });
+    const existing = await loadStore(dataPath());
+    const capture = await proxy.fetchAll({ knownStore: existing, onProgress: (progress) => mainWindow?.webContents.send("history:progress", progress) });
     if (!capture.complete) throw new Error(`只读到 ${capture.records.length}/${capture.expectedTotal} 条，未写入本地记录`);
     const store = await mergeCapture(dataPath(), { ...capture, capturedAt: new Date().toISOString() });
-    return { store: enrichStore(store) };
+    return { store: enrichStore(store), incremental: Boolean(capture.incremental), newCount: capture.newCount ?? capture.records.length };
   } finally {
     fetching = false;
   }

@@ -62,6 +62,46 @@ function aggregatePages(pages) {
   };
 }
 
+function recordToken(record) {
+  return `${record.poolId}:${record.resultId}:${record.timestampMs}`;
+}
+
+function incrementalPlan(firstPage, knownStore) {
+  const lastCapture = [...(knownStore?.captures ?? [])].reverse().find((capture) => capture.complete);
+  const knownRecords = knownStore?.records ?? [];
+  if (!lastCapture || lastCapture.expectedTotal !== knownRecords.length || knownRecords.length === 0) return null;
+  if (!knownRecords.every((record) => Number.isInteger(record.historyPosition))) return null;
+  if (firstPage.total < lastCapture.expectedTotal || firstPage.records.length === 0) return null;
+  const newCount = firstPage.total - lastCapture.expectedTotal;
+  const overlapCount = Math.min(firstPage.records.length, knownRecords.length);
+  const requiredRecords = newCount + overlapCount;
+  return {
+    newCount,
+    overlapCount,
+    requiredPages: Math.max(1, Math.ceil(requiredRecords / firstPage.records.length)),
+    knownTokens: [...knownRecords]
+      .sort((a, b) => a.historyPosition - b.historyPosition)
+      .slice(0, overlapCount)
+      .map(recordToken),
+  };
+}
+
+function aggregateIncremental(pages, plan) {
+  const fetched = pages.flatMap((page) => page.records);
+  const overlap = fetched.slice(plan.newCount, plan.newCount + plan.overlapCount).map(recordToken);
+  if (overlap.length !== plan.knownTokens.length || overlap.some((token, index) => token !== plan.knownTokens[index])) return null;
+  const added = fetched.slice(0, plan.newCount);
+  const partial = aggregatePages([{ total: added.length, records: added }]);
+  return {
+    ...partial,
+    expectedTotal: pages[0].total,
+    pageCount: pages.length,
+    complete: true,
+    incremental: true,
+    newCount: added.length,
+  };
+}
+
 class NightfallProxy {
   constructor({ proxyPort = PROXY_PORT, altPort = ALT_PORT, timeoutMs = 10000 } = {}) {
     this.proxyPort = proxyPort;
@@ -185,7 +225,7 @@ class NightfallProxy {
     }));
   }
 
-  async fetchAll({ onProgress, intervalMs = 1200, retryDelaysMs = [2500, 5000, 8000] } = {}) {
+  async fetchAll({ knownStore, onProgress, intervalMs = 1200, retryDelaysMs = [2500, 5000, 8000] } = {}) {
     const pages = [];
     const requestWithRetry = async (offset, pageNumber) => {
       let response = await this.requestPage(offset);
@@ -203,8 +243,24 @@ class NightfallProxy {
     pages.push(first);
     const pageSize = Math.max(1, first.records.length);
     const totalPages = Math.ceil(first.total / pageSize);
-    onProgress?.({ current: 1, total: totalPages, records: first.records.length });
-    for (let pageIndex = 1; pageIndex < totalPages; pageIndex++) {
+    const plan = incrementalPlan(first, knownStore);
+    const plannedPages = plan ? Math.min(plan.requiredPages, totalPages) : totalPages;
+    onProgress?.({ current: 1, total: plannedPages, records: first.records.length, incremental: Boolean(plan) });
+    for (let pageIndex = 1; pageIndex < plannedPages; pageIndex++) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      const offset = pageIndex * pageSize;
+      const page = await requestWithRetry(offset, pageIndex + 1);
+      if (page.errorCode !== 0) throw new Error(`第 ${pageIndex + 1} 页读取失败（错误 ${page.errorCode}）`);
+      if (page.offset !== offset) throw new Error(`第 ${pageIndex + 1} 页偏移不匹配（请求 ${offset}，返回 ${page.offset}）`);
+      pages.push(page);
+      onProgress?.({ current: pageIndex + 1, total: plannedPages, records: pages.reduce((sum, item) => sum + item.records.length, 0), incremental: Boolean(plan) });
+    }
+    if (plan) {
+      const incremental = aggregateIncremental(pages, plan);
+      if (incremental) return incremental;
+      onProgress?.({ fallback: true, current: pages.length, total: totalPages, records: pages.reduce((sum, item) => sum + item.records.length, 0) });
+    }
+    for (let pageIndex = pages.length; pageIndex < totalPages; pageIndex++) {
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
       const offset = pageIndex * pageSize;
       const page = await requestWithRetry(offset, pageIndex + 1);
@@ -225,4 +281,13 @@ class NightfallProxy {
   }
 }
 
-module.exports = { ALT_PORT, NightfallProxy, PROXY_PORT, aggregatePages, frameStream, selectProxyAddress };
+module.exports = {
+  ALT_PORT,
+  NightfallProxy,
+  PROXY_PORT,
+  aggregateIncremental,
+  aggregatePages,
+  frameStream,
+  incrementalPlan,
+  selectProxyAddress,
+};

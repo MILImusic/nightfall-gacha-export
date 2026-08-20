@@ -288,7 +288,9 @@ captureButton.addEventListener("click", async () => {
     status.textContent = "正在通过游戏当前连接读取…";
     const result = await window.nightfall.fetchHistory();
     render(result.store);
-    status.textContent = `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
+    status.textContent = result.incremental
+      ? `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`
+      : `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
   } catch (error) {
     status.textContent = error.message;
   } finally {
@@ -303,8 +305,12 @@ window.nightfall.onProgress((payload) => {
     status.textContent = `第 ${payload.page} 页触发服务器限流（${payload.errorCode}），等待 ${Math.ceil(payload.waitMs / 1000)} 秒后自动重试…`;
     return;
   }
+  if (payload.fallback) {
+    status.textContent = "增量重叠校验未通过，已自动切换为全量校验…";
+    return;
+  }
   stepMarker.textContent = `${payload.current}/${payload.total}`;
-  status.textContent = `正在读取第 ${payload.current}/${payload.total} 页，已取得 ${payload.records} 条…`;
+  status.textContent = `${payload.incremental ? "正在增量读取" : "正在读取"}第 ${payload.current}/${payload.total} 页，已取得 ${payload.records} 条…`;
 });
 
 document.querySelector("#exportJson").addEventListener("click", () => window.nightfall.exportJson());

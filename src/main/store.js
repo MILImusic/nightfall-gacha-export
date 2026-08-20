@@ -25,9 +25,20 @@ async function saveStore(filePath, data) {
 async function mergeCapture(filePath, capture) {
   const store = await loadStore(filePath);
   const capturedAt = capture.capturedAt ?? new Date().toISOString();
+  if (capture.incremental && capture.newCount > 0) {
+    store.records = store.records.map((record) => ({
+      ...record,
+      historyPosition: Number.isInteger(record.historyPosition)
+        ? record.historyPosition + capture.newCount
+        : record.historyPosition,
+    }));
+  }
   const records = new Map(store.records.map((record) => [record.key, record]));
   for (const record of capture.records) records.set(record.key, record);
   store.records = [...records.values()].sort((a, b) => b.timestampMs - a.timestampMs || b.resultId - a.resultId || a.key.localeCompare(b.key));
+  if (capture.complete && store.records.length !== capture.expectedTotal) {
+    throw new Error(`本地合并后为 ${store.records.length} 条，与服务器 ${capture.expectedTotal} 条不一致，未写入`);
+  }
   store.lastCapturedAt = capturedAt;
   store.captures.push({
     capturedAt,
@@ -35,6 +46,8 @@ async function mergeCapture(filePath, capture) {
     imported: capture.records.length,
     pageCount: capture.pageCount,
     complete: capture.complete,
+    incremental: Boolean(capture.incremental),
+    newCount: capture.newCount ?? capture.records.length,
   });
   await saveStore(filePath, store);
   return store;

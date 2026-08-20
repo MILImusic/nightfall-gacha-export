@@ -10,7 +10,14 @@ const {
   reassembleSegments,
   splitFrames,
 } = require("../src/protocol/nightfall");
-const { aggregatePages, frameStream, NightfallProxy, selectProxyAddress } = require("../src/main/proxy");
+const {
+  aggregateIncremental,
+  aggregatePages,
+  frameStream,
+  incrementalPlan,
+  NightfallProxy,
+  selectProxyAddress,
+} = require("../src/main/proxy");
 
 function varint(value) {
   let current = BigInt(value);
@@ -135,6 +142,120 @@ test("代理汇总时按真实卡池保留重复并分别计数", () => {
   assert.equal(capture.complete, true);
   assert.equal(capture.records.filter((item) => item.poolId === 10).length, 2);
   assert.notEqual(capture.records[0].key, capture.records[1].key);
+});
+
+test("已有完整记录时只抓新增记录和一页重叠校验", () => {
+  const knownRecords = Array.from({ length: 10 }, (_, index) => ({
+    poolId: 10,
+    resultId: 100 + index,
+    timestampMs: 1000 - index,
+    historyPosition: index + 1,
+  }));
+  const knownStore = {
+    records: knownRecords,
+    captures: [{ complete: true, expectedTotal: 10 }],
+  };
+  const first = {
+    total: 12,
+    records: [
+      { poolId: 20, resultId: 201, timestampMs: 2001 },
+      { poolId: 20, resultId: 202, timestampMs: 2000 },
+      ...knownRecords.slice(0, 3),
+    ],
+  };
+  const second = { total: 12, records: knownRecords.slice(3, 8) };
+  const plan = incrementalPlan(first, knownStore);
+  assert.deepEqual({ newCount: plan.newCount, overlapCount: plan.overlapCount, requiredPages: plan.requiredPages }, {
+    newCount: 2,
+    overlapCount: 5,
+    requiredPages: 2,
+  });
+  const capture = aggregateIncremental([first, second], plan);
+  assert.equal(capture.incremental, true);
+  assert.equal(capture.newCount, 2);
+  assert.equal(capture.expectedTotal, 12);
+  assert.deepEqual(capture.records.map((item) => item.historyPosition), [1, 2]);
+});
+
+test("增量重叠不一致时拒绝捷径并回落全量", () => {
+  const knownStore = {
+    records: [{ poolId: 10, resultId: 100, timestampMs: 1000, historyPosition: 1 }],
+    captures: [{ complete: true, expectedTotal: 1 }],
+  };
+  const first = {
+    total: 2,
+    records: [
+      { poolId: 20, resultId: 200, timestampMs: 2000 },
+      { poolId: 10, resultId: 999, timestampMs: 1000 },
+    ],
+  };
+  const plan = incrementalPlan(first, knownStore);
+  assert.equal(aggregateIncremental([first], plan), null);
+});
+
+test("旧记录没有稳定历史位置时强制全量读取", () => {
+  assert.equal(incrementalPlan({ total: 2, records: [{ poolId: 1, resultId: 2, timestampMs: 3 }] }, {
+    records: [{ poolId: 1, resultId: 2, timestampMs: 3 }],
+    captures: [{ complete: true, expectedTotal: 1 }],
+  }), null);
+});
+
+test("fetchAll 增量路径只请求新增量和一页重叠", async () => {
+  const knownRecords = Array.from({ length: 10 }, (_, index) => ({
+    poolId: 10,
+    resultId: 100 + index,
+    timestampMs: 1000 - index,
+    historyPosition: index + 1,
+  }));
+  const allRecords = [
+    { poolId: 20, resultId: 201, timestampMs: 2001 },
+    { poolId: 20, resultId: 202, timestampMs: 2000 },
+    ...knownRecords,
+  ];
+  const offsets = [];
+  const proxy = new NightfallProxy();
+  proxy.requestPage = async (offset) => {
+    offsets.push(offset);
+    return { errorCode: 0, offset, total: allRecords.length, records: allRecords.slice(offset, offset + 5) };
+  };
+  const capture = await proxy.fetchAll({
+    intervalMs: 0,
+    knownStore: { records: knownRecords, captures: [{ complete: true, expectedTotal: 10 }] },
+  });
+  assert.deepEqual(offsets, [0, 5]);
+  assert.equal(capture.incremental, true);
+  assert.equal(capture.newCount, 2);
+});
+
+test("fetchAll 增量指纹失败后从已取页继续完成全量", async () => {
+  const knownRecords = Array.from({ length: 10 }, (_, index) => ({
+    poolId: 10,
+    resultId: 100 + index,
+    timestampMs: 1000 - index,
+    historyPosition: index + 1,
+  }));
+  const allRecords = [
+    { poolId: 20, resultId: 201, timestampMs: 2001 },
+    { poolId: 20, resultId: 202, timestampMs: 2000 },
+    ...knownRecords.map((item, index) => index === 0 ? { ...item, resultId: 999 } : item),
+  ];
+  const offsets = [];
+  const progress = [];
+  const proxy = new NightfallProxy();
+  proxy.requestPage = async (offset) => {
+    offsets.push(offset);
+    return { errorCode: 0, offset, total: allRecords.length, records: allRecords.slice(offset, offset + 5) };
+  };
+  const capture = await proxy.fetchAll({
+    intervalMs: 0,
+    onProgress: (item) => progress.push(item),
+    knownStore: { records: knownRecords, captures: [{ complete: true, expectedTotal: 10 }] },
+  });
+  assert.deepEqual(offsets, [0, 5, 10]);
+  assert.equal(progress.some((item) => item.fallback), true);
+  assert.equal(capture.incremental, undefined);
+  assert.equal(capture.complete, true);
+  assert.equal(capture.records.length, 12);
 });
 
 test("接管地址跳过 Clash fake-ip 与 Tailscale，优先真实局域网", () => {
