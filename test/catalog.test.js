@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { cards, enrichStore, pityGroupForPool } = require("../src/main/catalog");
+const { cards, pools, enrichStore, pityGroupForPool } = require("../src/main/catalog");
 
 function record(key, resultId, historyPosition, poolId = 30005) {
   return { key, resultId, historyPosition, poolId, timestampMs: historyPosition };
@@ -11,6 +11,13 @@ test("卡牌表的内部 ID 唯一，且含当前限定六星", () => {
   assert.deepEqual(cards.find((card) => card.id === 13001021), {
     id: 13001021, name: "净世雨", character: "雨仙", rarity: 6,
   });
+});
+
+test("当前历史池都有中文名称", () => {
+  const names = new Map(pools.map((pool) => [pool.id, pool.name]));
+  for (const id of [10001, 20001, 30001, 30002, 30003, 30004, 30005]) {
+    assert.ok(names.get(id), `缺少卡池 ${id} 的名称`);
+  }
 });
 
 test("按每个卡池的服务器原始顺序计算六星抽数", () => {
@@ -44,8 +51,8 @@ test("不同期限定 UP 池共用同一条六星保底计数", () => {
   assert.equal(byKey.get("new-six").pityGroup, "limited:directional");
 });
 
-test("未确认规则的新限定池不会擅自并入继承组", () => {
-  assert.notEqual(pityGroupForPool(30006).id, pityGroupForPool(30005).id);
+test("新一期限定池按协议命名空间自动并入继承组", () => {
+  assert.equal(pityGroupForPool(30006).id, pityGroupForPool(30005).id);
 });
 
 test("四种池分为四条保底链，常驻遴选跨期继承", () => {
@@ -55,6 +62,12 @@ test("四种池分为四条保底链，常驻遴选跨期继承", () => {
   const limited = pityGroupForPool(30001).id;
   assert.equal(new Set([starter, standard, selection, limited]).size, 4);
   assert.equal(pityGroupForPool(20007).id, selection);
+  assert.equal(pityGroupForPool(20008).id, selection);
+  assert.equal(pityGroupForPool(20009).id, selection);
   assert.notEqual(selection, standard);
   assert.notEqual(selection, limited);
+});
+
+test("未知命名空间不会被静默归进既有保底链", () => {
+  assert.match(pityGroupForPool(40001).id, /^pool:/);
 });

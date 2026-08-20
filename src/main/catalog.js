@@ -1,15 +1,15 @@
 const cards = require("../data/cards.json");
+const pools = require("../data/pools.json");
 
 const cardById = new Map(cards.map((card) => [card.id, card]));
-const SHARED_SELECTION_POOLS = new Set([20002, 20003, 20004, 20005, 20006, 20007]);
-const SHARED_LIMITED_POOLS = new Set([30001, 30002, 30003, 30004, 30005]);
+const poolById = new Map(pools.map((pool) => [pool.id, pool]));
 
 function pityGroupForPool(poolId) {
   const id = Number(poolId);
-  if (SHARED_LIMITED_POOLS.has(id)) return { id: "limited:directional", name: "限时定向契约（继承）" };
-  if (SHARED_SELECTION_POOLS.has(id)) return { id: "selection:standard", name: "常驻遴选契约（继承）" };
+  if (id >= 30000 && id < 40000) return { id: "limited:directional", name: "限时定向契约（继承）" };
+  if (id >= 20002 && id < 30000) return { id: "selection:standard", name: "常驻遴选契约（继承）" };
   if (id === 20001) return { id: "standard", name: "常规契约" };
-  if (id === 10001) return { id: "starter", name: "起始契约" };
+  if (id >= 10000 && id < 20000) return { id: `starter:${id}`, name: "起始契约" };
   return { id: `pool:${id}`, name: `卡池 ${id}` };
 }
 
@@ -50,6 +50,7 @@ function enrichStore(store) {
         name: card?.name ?? null,
         character: card?.character ?? null,
         rarity: card?.rarity ?? null,
+        poolName: poolById.get(Number(record.poolId))?.name ?? null,
         ...metrics.get(record.key),
         exactOrder: Number.isInteger(record.historyPosition),
       };
@@ -57,4 +58,4 @@ function enrichStore(store) {
   };
 }
 
-module.exports = { cards, enrichStore, pityGroupForPool };
+module.exports = { cards, pools, enrichStore, pityGroupForPool };

@@ -24,6 +24,6 @@ test("相同记录不重复写入，新记录会合并", async () => {
 
 test("CSV 保留结果 ID、卡池与毫秒时间", () => {
   const csv = toCsv({ records: [firstRecord] });
-  assert.match(csv, /recordId,poolId,resultId,name,character,rarity,poolPullNumber,sixStarPity,timestamp,timestampMs/);
-  assert.match(csv, /30005,13001028,,,,,,2026-08-20T07:18:25.712Z,1787210305712/);
+  assert.match(csv, /recordId,poolId,poolName,resultId,name,character,rarity,poolPullNumber,sixStarPity,timestamp,timestampMs/);
+  assert.match(csv, /30005,,13001028,,,,,,2026-08-20T07:18:25.712Z,1787210305712/);
 });

@@ -40,18 +40,20 @@ kbd { min-width: 38px; padding: 5px 9px; color: #e5c38d; text-align: center; bac
 .pool-filter.active strong { color: #17120b; }
 .rarity-summary { display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; margin: 0 0 18px; }
 .rarity-block { min-width: 0; padding: 18px; border: 1px solid #30343d; border-radius: 13px; background: #12151a; }
-.six-star-block { border-color: #6f5630; background: linear-gradient(145deg, #211b14, #12151a 58%); }
+.six-star-block { border-color: #87333b; background: linear-gradient(145deg, #281317, #12151a 58%); }
 .rarity-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; color: #b8bbc2; }
-.rarity-heading strong { color: #e0bd79; font-size: 22px; }
+.rarity-heading strong { color: #d9aa52; font-size: 22px; }
+.six-star-block .rarity-heading strong { color: #ef6872; }
 .six-star-list { display: grid; gap: 9px; }
-.six-star-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; padding: 12px 13px; border-left: 3px solid #d4aa5f; background: #191817; }
-.six-star-card strong { color: #f1d59d; }
+.six-star-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; padding: 12px 13px; border-left: 3px solid #d84c57; background: #1e1517; }
+.six-star-card strong { color: #ff8a92; }
 .six-star-card span { color: #a9abb1; }
-.six-star-card small { grid-column: 1 / -1; color: #81745f; }
+.six-star-card small { grid-column: 1 / -1; color: #9b7074; }
+.five-star-block { border-color: #6f5630; background: linear-gradient(145deg, #211b14, #12151a 58%); }
 .five-star-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.five-star-list span { padding: 7px 9px; color: #d7d1e4; background: #201d27; border: 1px solid #3a3446; border-radius: 7px; font-size: 13px; }
-.rarity-6 td:first-child { color: #f0cf8d; font-weight: 650; }
-.rarity-5 td:first-child { color: #d2c5e4; }
+.five-star-list span { padding: 7px 9px; color: #e9c77e; background: #211b14; border: 1px solid #624d2d; border-radius: 7px; font-size: 13px; }
+.rarity-6 td:first-child { color: #f06c75; font-weight: 650; }
+.rarity-5 td:first-child { color: #e5c171; }
 .empty { padding: 64px 24px; text-align: center; color: #70747d; border: 1px dashed #30343d; border-radius: 12px; }
 .table-wrap { overflow: hidden; border: 1px solid #2d3139; border-radius: 12px; background: #12151a; }
 table { width: 100%; border-collapse: collapse; }

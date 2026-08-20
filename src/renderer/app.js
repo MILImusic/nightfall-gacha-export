@@ -55,7 +55,8 @@ function renderRaritySummary() {
     card.innerHTML = `<strong></strong><span></span><small></small>`;
     card.querySelector("strong").textContent = record.name ?? `结果 ${record.resultId}`;
     card.querySelector("span").textContent = record.character ?? "未知角色";
-    card.querySelector("small").textContent = `${record.pityGroupName}第 ${record.poolPullNumber} 抽 · ${record.sixStarPity} 抽出 · 来源池 ${record.poolId}${orderWarning}`;
+    const sourcePool = record.poolName ? `${record.poolName} (${record.poolId})` : `卡池 ${record.poolId}`;
+    card.querySelector("small").textContent = `${record.pityGroupName}第 ${record.poolPullNumber} 抽 · ${record.sixStarPity} 抽出 · ${sourcePool}${orderWarning}`;
     sixList.append(card);
   }
   if (sixes.length === 0) sixList.textContent = "该范围内还没有六星记录";
@@ -84,11 +85,16 @@ function renderRaritySummary() {
 
 function renderPoolFilters(store) {
   const counts = new Map();
-  for (const record of store.records) counts.set(String(record.poolId), (counts.get(String(record.poolId)) ?? 0) + 1);
+  const names = new Map();
+  for (const record of store.records) {
+    const id = String(record.poolId);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+    if (record.poolName) names.set(id, record.poolName);
+  }
   if (activePool !== "all" && !counts.has(activePool)) activePool = "all";
   poolFilters.replaceChildren();
   const options = [["all", "全部", store.records.length],
-    ...[...counts.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).map(([id, count]) => [id, `卡池 ${id}`, count])];
+    ...[...counts.entries()].sort((a, b) => Number(a[0]) - Number(b[0])).map(([id, count]) => [id, `${names.get(id) ?? "未知卡池"} · ${id}`, count])];
   for (const [id, label, count] of options) {
     const button = document.createElement("button");
     button.className = `pool-filter${activePool === id ? " active" : ""}`;
