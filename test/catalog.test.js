@@ -96,3 +96,11 @@ test("旧记录的当前已垫次数标为约数", () => {
   assert.equal(store.pityProgress[0].currentPity, 1);
   assert.equal(store.pityProgress[0].exact, false);
 });
+
+test("起始契约满30抽后不再作为当前垫抽展示", () => {
+  const records = Array.from({ length: 30 }, (_, index) =>
+    record(`starter-${index}`, 13001028, index + 1, 10001));
+  const store = enrichStore({ records });
+  assert.equal(store.pityProgress[0].pulls, 30);
+  assert.equal(store.pityProgress[0].completed, true);
+});

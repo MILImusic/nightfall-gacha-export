@@ -5,6 +5,7 @@ const stepMarker = document.querySelector("#stepMarker");
 const status = document.querySelector("#status");
 const emptyState = document.querySelector("#emptyState");
 const pityProgress = document.querySelector("#pityProgress");
+const pityProgressSection = document.querySelector(".pity-progress-section");
 const detailPanel = document.querySelector("#detailPanel");
 const recordRows = document.querySelector("#recordRows");
 const poolFilters = document.querySelector("#poolFilters");
@@ -43,7 +44,7 @@ function pityKind(groupId) {
 
 function renderPityProgress() {
   pityProgress.replaceChildren();
-  let groups = currentStore?.pityProgress ?? [];
+  let groups = (currentStore?.pityProgress ?? []).filter((group) => !group.completed);
   if (activePool !== "all") {
     const groupId = recordsForActivePool()[0]?.pityGroup;
     groups = groups.filter((group) => group.id === groupId);
@@ -59,12 +60,7 @@ function renderPityProgress() {
     card.append(name, count);
     pityProgress.append(card);
   }
-  if (groups.length === 0) {
-    const empty = document.createElement("span");
-    empty.className = "pity-progress-empty";
-    empty.textContent = "暂无记录";
-    pityProgress.append(empty);
-  }
+  pityProgressSection.hidden = groups.length === 0;
 }
 
 function renderRows() {
@@ -96,10 +92,6 @@ function renderRows() {
 function renderRaritySummary() {
   const records = recordsForActivePool();
   const sixes = records.filter((record) => record.rarity === 6);
-  if (activePool === "all") {
-    sixes.sort((a, b) => pityKind(a.pityGroup).order - pityKind(b.pityGroup).order
-      || (a.historyPosition ?? Number.MAX_SAFE_INTEGER) - (b.historyPosition ?? Number.MAX_SAFE_INTEGER));
-  }
   const fives = records.filter((record) => record.rarity === 5);
   raritySummary.replaceChildren();
 
@@ -108,13 +100,14 @@ function renderRaritySummary() {
     const name = `${record.name ?? record.resultId} · ${record.character ?? "未知"}`;
     const key = `${record.pityGroup}\0${name}`;
     const current = fiveCounts.get(key) ?? {
-      name, count: 0, pityGroup: record.pityGroup,
+      name, count: 0, pityGroup: record.pityGroup, latestTimestampMs: record.timestampMs,
     };
     current.count += 1;
+    current.latestTimestampMs = Math.max(current.latestTimestampMs, record.timestampMs);
     fiveCounts.set(key, current);
   }
   const fiveEntries = [...fiveCounts.values()].sort((a, b) => activePool === "all"
-    ? pityKind(a.pityGroup).order - pityKind(b.pityGroup).order || b.count - a.count
+    ? b.latestTimestampMs - a.latestTimestampMs
     : b.count - a.count);
   const totalPages = Math.max(
     1,

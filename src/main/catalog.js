@@ -50,6 +50,7 @@ function enrichStore(store) {
       pulls: state.pulls,
       currentPity: state.sinceSix,
       exact: state.exact,
+      completed: id.startsWith("starter:") && state.pulls >= 30,
     })),
     records: store.records.map((record) => {
       const card = cardById.get(record.resultId);

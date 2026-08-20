@@ -28,17 +28,13 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .summary div { padding: 16px 18px; border-left: 2px solid #6b5537; background: #12151a; }
 .summary span { display: block; color: #777c86; font-size: 12px; margin-bottom: 8px; }
 .summary strong { font-size: 18px; font-weight: 600; }
-.pity-progress-section { margin-bottom: 34px; }
-.pity-progress-section h2 { margin: 0 0 13px; font-size: 16px; font-weight: 600; color: #d7d2c9; }
-.pity-progress { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.pity-progress-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: #15181e; border: 1px solid #30343d; border-left: 3px solid #a43a43; border-radius: 10px; }
-.pity-progress-card.starter { border-left-color: #7fc2ce; }
-.pity-progress-card.standard { border-left-color: #aeb4c2; }
-.pity-progress-card.selection { border-left-color: #c59ae6; }
-.pity-progress-card.limited { border-left-color: #f07880; }
-.pity-progress-card span { color: #a8abb2; font-size: 13px; }
-.pity-progress-card strong { color: #ff7c85; font-size: 24px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.pity-progress-empty { color: #777c86; }
+.pity-progress-section { display: flex; align-items: center; gap: 14px; margin: -18px 0 30px; color: #777c86; }
+.pity-progress-section[hidden] { display: none; }
+.pity-progress-section h2 { flex: 0 0 auto; margin: 0; font-size: 12px; font-weight: 500; }
+.pity-progress { display: flex; flex-wrap: wrap; gap: 7px 16px; }
+.pity-progress-card { display: inline-flex; align-items: baseline; gap: 6px; }
+.pity-progress-card span { color: #777c86; font-size: 12px; }
+.pity-progress-card strong { color: #c9c4bb; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; font-size: 20px; }
 .view-switch { display: inline-flex; padding: 3px; background: #15181e; border: 1px solid #2d3139; border-radius: 9px; }
