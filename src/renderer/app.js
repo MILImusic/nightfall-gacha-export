@@ -4,6 +4,7 @@ const captureHint = document.querySelector("#captureHint");
 const stepMarker = document.querySelector("#stepMarker");
 const status = document.querySelector("#status");
 const emptyState = document.querySelector("#emptyState");
+const pityProgress = document.querySelector("#pityProgress");
 const detailPanel = document.querySelector("#detailPanel");
 const recordRows = document.querySelector("#recordRows");
 const poolFilters = document.querySelector("#poolFilters");
@@ -30,6 +31,40 @@ function recordsForActivePool() {
   return activePool === "all"
     ? currentStore.records
     : currentStore.records.filter((record) => String(record.poolId) === activePool);
+}
+
+function pityKind(groupId) {
+  if (groupId?.startsWith("starter:")) return { label: "新手池", order: 0, className: "starter" };
+  if (groupId === "standard") return { label: "常驻池", order: 1, className: "standard" };
+  if (groupId === "selection:standard") return { label: "常驻限定池", order: 2, className: "selection" };
+  if (groupId === "limited:directional") return { label: "限定池", order: 3, className: "limited" };
+  return { label: "其他池", order: 4, className: "other" };
+}
+
+function renderPityProgress() {
+  pityProgress.replaceChildren();
+  let groups = currentStore?.pityProgress ?? [];
+  if (activePool !== "all") {
+    const groupId = recordsForActivePool()[0]?.pityGroup;
+    groups = groups.filter((group) => group.id === groupId);
+  }
+  for (const group of groups) {
+    const kind = pityKind(group.id);
+    const card = document.createElement("div");
+    card.className = `pity-progress-card ${kind.className}`;
+    const name = document.createElement("span");
+    name.textContent = group.name;
+    const count = document.createElement("strong");
+    count.textContent = `${group.exact ? "" : "约 "}${group.currentPity} 抽`;
+    card.append(name, count);
+    pityProgress.append(card);
+  }
+  if (groups.length === 0) {
+    const empty = document.createElement("span");
+    empty.className = "pity-progress-empty";
+    empty.textContent = "暂无记录";
+    pityProgress.append(empty);
+  }
 }
 
 function renderRows() {
@@ -61,15 +96,26 @@ function renderRows() {
 function renderRaritySummary() {
   const records = recordsForActivePool();
   const sixes = records.filter((record) => record.rarity === 6);
+  if (activePool === "all") {
+    sixes.sort((a, b) => pityKind(a.pityGroup).order - pityKind(b.pityGroup).order
+      || (a.historyPosition ?? Number.MAX_SAFE_INTEGER) - (b.historyPosition ?? Number.MAX_SAFE_INTEGER));
+  }
   const fives = records.filter((record) => record.rarity === 5);
   raritySummary.replaceChildren();
 
   const fiveCounts = new Map();
   for (const record of fives) {
-    const key = `${record.name ?? record.resultId} · ${record.character ?? "未知"}`;
-    fiveCounts.set(key, (fiveCounts.get(key) ?? 0) + 1);
+    const name = `${record.name ?? record.resultId} · ${record.character ?? "未知"}`;
+    const key = `${record.pityGroup}\0${name}`;
+    const current = fiveCounts.get(key) ?? {
+      name, count: 0, pityGroup: record.pityGroup,
+    };
+    current.count += 1;
+    fiveCounts.set(key, current);
   }
-  const fiveEntries = [...fiveCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const fiveEntries = [...fiveCounts.values()].sort((a, b) => activePool === "all"
+    ? pityKind(a.pityGroup).order - pityKind(b.pityGroup).order || b.count - a.count
+    : b.count - a.count);
   const totalPages = Math.max(
     1,
     Math.ceil(sixes.length / PREVIEW_SIX_SIZE),
@@ -91,7 +137,16 @@ function renderRaritySummary() {
     card.className = "six-star-card";
     const orderWarning = record.exactOrder ? "" : " · 顺序待重新获取校准";
     card.innerHTML = `<strong></strong><span></span><em class="pity-badge"></em><small></small>`;
-    card.querySelector("strong").textContent = record.name ?? `结果 ${record.resultId}`;
+    const title = card.querySelector("strong");
+    if (activePool === "all") {
+      const kind = pityKind(record.pityGroup);
+      const badge = document.createElement("b");
+      badge.className = `pool-kind-badge ${kind.className}`;
+      badge.textContent = kind.label;
+      title.append(badge, document.createTextNode(record.name ?? `结果 ${record.resultId}`));
+    } else {
+      title.textContent = record.name ?? `结果 ${record.resultId}`;
+    }
     card.querySelector("span").textContent = record.character ?? "未知角色";
     card.querySelector(".pity-badge").textContent = `${record.exactOrder ? "第" : "约第"} ${record.sixStarPity} 抽获得`;
     const sourcePool = record.poolName ?? record.pityGroupName ?? "未知卡池";
@@ -107,9 +162,17 @@ function renderRaritySummary() {
   fiveBlock.innerHTML = `<div class="rarity-heading"><span>五星</span><strong>${fives.length}</strong></div>`;
   const fiveList = document.createElement("div");
   fiveList.className = "five-star-list";
-  for (const [name, count] of visibleFives) {
+  for (const entry of visibleFives) {
     const chip = document.createElement("span");
-    chip.textContent = `${name} ×${count}`;
+    if (activePool === "all") {
+      const kind = pityKind(entry.pityGroup);
+      const badge = document.createElement("b");
+      badge.className = `pool-kind-badge ${kind.className}`;
+      badge.textContent = kind.label;
+      chip.append(badge, document.createTextNode(`${entry.name} ×${entry.count}`));
+    } else {
+      chip.textContent = `${entry.name} ×${entry.count}`;
+    }
     fiveList.append(chip);
   }
   if (fives.length === 0) fiveList.textContent = "该范围内还没有五星记录";
@@ -162,6 +225,7 @@ function render(store) {
     : `${sixes.every((record) => record.exactOrder) ? "" : "约 "}${average.toFixed(1)} 抽`;
   emptyState.hidden = store.records.length > 0;
   renderPoolFilters(store);
+  renderPityProgress();
   renderRaritySummary();
   renderRows();
 }
@@ -173,6 +237,7 @@ poolFilters.addEventListener("click", (event) => {
   detailPage = 1;
   previewPage = 1;
   renderPoolFilters(currentStore);
+  renderPityProgress();
   renderRaritySummary();
   renderRows();
 });

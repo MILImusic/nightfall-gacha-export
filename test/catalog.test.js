@@ -71,3 +71,28 @@ test("四种池分为四条保底链，常驻遴选跨期继承", () => {
 test("未知命名空间不会被静默归进既有保底链", () => {
   assert.match(pityGroupForPool(40001).id, /^pool:/);
 });
+
+test("当前已垫次数按继承组分别计算", () => {
+  const store = enrichStore({ records: [
+    record("limited-new", 13001028, 1, 30005),
+    record("selection-new", 13001028, 2, 20009),
+    record("limited-five", 13001014, 3, 30004),
+    record("selection-six", 13001021, 4, 20002),
+    record("limited-six", 13001025, 5, 30004),
+    record("standard-new", 13001028, 6, 20001),
+  ] });
+  const progress = new Map(store.pityProgress.map((item) => [item.id, item]));
+  assert.equal(progress.get("limited:directional").currentPity, 2);
+  assert.equal(progress.get("selection:standard").currentPity, 1);
+  assert.equal(progress.get("standard").currentPity, 1);
+  assert.equal(progress.get("limited:directional").pulls, 3);
+  assert.equal(progress.get("limited:directional").exact, true);
+});
+
+test("旧记录的当前已垫次数标为约数", () => {
+  const store = enrichStore({ records: [
+    { ...record("old", 13001028, 1, 30005), historyPosition: null },
+  ] });
+  assert.equal(store.pityProgress[0].currentPity, 1);
+  assert.equal(store.pityProgress[0].exact, false);
+});

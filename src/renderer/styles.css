@@ -28,6 +28,17 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .summary div { padding: 16px 18px; border-left: 2px solid #6b5537; background: #12151a; }
 .summary span { display: block; color: #777c86; font-size: 12px; margin-bottom: 8px; }
 .summary strong { font-size: 18px; font-weight: 600; }
+.pity-progress-section { margin-bottom: 34px; }
+.pity-progress-section h2 { margin: 0 0 13px; font-size: 16px; font-weight: 600; color: #d7d2c9; }
+.pity-progress { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.pity-progress-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; background: #15181e; border: 1px solid #30343d; border-left: 3px solid #a43a43; border-radius: 10px; }
+.pity-progress-card.starter { border-left-color: #7fc2ce; }
+.pity-progress-card.standard { border-left-color: #aeb4c2; }
+.pity-progress-card.selection { border-left-color: #c59ae6; }
+.pity-progress-card.limited { border-left-color: #f07880; }
+.pity-progress-card span { color: #a8abb2; font-size: 13px; }
+.pity-progress-card strong { color: #ff7c85; font-size: 24px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pity-progress-empty { color: #777c86; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; font-size: 20px; }
 .view-switch { display: inline-flex; padding: 3px; background: #15181e; border: 1px solid #2d3139; border-radius: 9px; }
@@ -56,6 +67,12 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .five-star-block { border-color: #6f5630; background: linear-gradient(145deg, #211b14, #12151a 58%); }
 .five-star-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .five-star-list span { padding: 7px 9px; color: #e9c77e; background: #211b14; border: 1px solid #624d2d; border-radius: 7px; font-size: 13px; }
+.pool-kind-badge { display: inline-block; margin-right: 7px; padding: 2px 6px; border: 1px solid currentColor; border-radius: 999px; font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 10px; font-weight: 700; line-height: 1.35; vertical-align: 2px; white-space: nowrap; }
+.pool-kind-badge.starter { color: #7fc2ce; }
+.pool-kind-badge.standard { color: #aeb4c2; }
+.pool-kind-badge.selection { color: #c59ae6; }
+.pool-kind-badge.limited { color: #f07880; }
+.pool-kind-badge.other { color: #b6a47d; }
 .rarity-6 td:first-child { color: #f06c75; font-weight: 650; }
 .rarity-5 td:first-child { color: #e5c171; }
 .empty { padding: 64px 24px; text-align: center; color: #70747d; border: 1px dashed #30343d; border-radius: 12px; }

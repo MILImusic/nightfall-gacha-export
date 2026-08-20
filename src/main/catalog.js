@@ -27,9 +27,10 @@ function enrichStore(store) {
   const groups = new Map();
   for (const record of chronology(store.records)) {
     const group = pityGroupForPool(record.poolId);
-    const state = groups.get(group.id) ?? { pulls: 0, sinceSix: 0 };
+    const state = groups.get(group.id) ?? { name: group.name, pulls: 0, sinceSix: 0, exact: true };
     state.pulls += 1;
     state.sinceSix += 1;
+    state.exact &&= Number.isInteger(record.historyPosition);
     const card = cardById.get(record.resultId);
     metrics.set(record.key, {
       poolPullNumber: state.pulls,
@@ -43,6 +44,13 @@ function enrichStore(store) {
 
   return {
     ...store,
+    pityProgress: [...groups.entries()].map(([id, state]) => ({
+      id,
+      name: state.name,
+      pulls: state.pulls,
+      currentPity: state.sinceSix,
+      exact: state.exact,
+    })),
     records: store.records.map((record) => {
       const card = cardById.get(record.resultId);
       return {
