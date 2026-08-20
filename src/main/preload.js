@@ -7,5 +7,7 @@ contextBridge.exposeInMainWorld("nightfall", {
   getData: () => ipcRenderer.invoke("data:get"),
   exportJson: () => ipcRenderer.invoke("data:export-json"),
   exportCsv: () => ipcRenderer.invoke("data:export-csv"),
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   onProgress: (callback) => ipcRenderer.on("history:progress", (_event, payload) => callback(payload)),
 });

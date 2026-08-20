@@ -17,6 +17,7 @@ const nextPreviewPage = document.querySelector("#nextPreviewPage");
 const pageStatus = document.querySelector("#pageStatus");
 const previousPage = document.querySelector("#previousPage");
 const nextPage = document.querySelector("#nextPage");
+const updateButton = document.querySelector("#updateButton");
 const PAGE_SIZE = 10;
 const PREVIEW_SIX_SIZE = 6;
 const PREVIEW_FIVE_SIZE = 12;
@@ -26,6 +27,7 @@ let proxyConnected = false;
 let viewMode = "preview";
 let detailPage = 1;
 let previewPage = 1;
+let pendingUpdate = null;
 
 function recordsForActivePool() {
   if (!currentStore) return [];
@@ -307,6 +309,35 @@ window.nightfall.onProgress((payload) => {
 
 document.querySelector("#exportJson").addEventListener("click", () => window.nightfall.exportJson());
 document.querySelector("#exportCsv").addEventListener("click", () => window.nightfall.exportCsv());
+
+updateButton.addEventListener("click", async () => {
+  updateButton.disabled = true;
+  try {
+    if (!pendingUpdate?.available) return;
+    updateButton.textContent = "正在更新…";
+    status.textContent = `正在下载并校验 v${pendingUpdate.latestVersion}，完成后会自动重启…`;
+    await window.nightfall.installUpdate();
+  } catch (error) {
+    updateButton.textContent = "更新版本";
+    status.textContent = error.message;
+  } finally {
+    updateButton.disabled = false;
+  }
+});
+
+async function detectUpdateOnLaunch() {
+  try {
+    const result = await window.nightfall.checkForUpdates();
+    if (!result.available) return;
+    pendingUpdate = result;
+    updateButton.title = `发现 v${result.latestVersion}`;
+    updateButton.hidden = false;
+  } catch {
+    // 启动检查完全静默；网络问题不应打扰记录读取。
+  }
+}
+
+void detectUpdateOnLaunch();
 
 window.nightfall.getData().then(render).catch((error) => { status.textContent = error.message; });
 setInterval(async () => {

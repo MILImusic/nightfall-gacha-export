@@ -6,10 +6,13 @@
   "author": "MILImusic <149888220+MILImusic@users.noreply.github.com>",
   "license": "MIT",
   "private": false,
+  "repository": "https://github.com/MILImusic/nightfall-gacha-export.git",
+  "homepage": "https://github.com/MILImusic/nightfall-gacha-export",
+  "bugs": "https://github.com/MILImusic/nightfall-gacha-export/issues",
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "lint": "node --check src/main/main.js && node --check src/main/proxy.js && node --check src/main/store.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js",
+    "lint": "node --check src/main/main.js && node --check src/main/proxy.js && node --check src/main/store.js && node --check src/main/updater.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js && node --check src/renderer/theme.js",
     "build:win": "electron-builder --win zip --x64"
   },
   "build": {

@@ -6,6 +6,7 @@ const { promisify } = require("node:util");
 const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
 const { loadStore, mergeCapture, toCsv } = require("./store");
 const { enrichStore } = require("./catalog");
+const { checkForUpdate, downloadUpdate, scheduleWindowsInstall } = require("./updater");
 
 let fetching = false;
 let mainWindow;
@@ -106,6 +107,23 @@ ipcMain.handle("data:export-csv", async () => {
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `\ufeff${toCsv(store)}`, "utf8");
   return { canceled: false };
+});
+
+ipcMain.handle("update:check", () => checkForUpdate(app.getVersion()));
+
+ipcMain.handle("update:install", async () => {
+  if (!app.isPackaged || process.platform !== "win32") throw new Error("直更只在已安装的 Windows 版本中可用");
+  const update = await checkForUpdate(app.getVersion());
+  if (!update.available) return update;
+  const downloaded = await downloadUpdate(update, path.join(app.getPath("userData"), "updates"));
+  await scheduleWindowsInstall({
+    pendingPath: downloaded.pendingPath,
+    targetPath: path.join(process.resourcesPath, "app.asar"),
+    executablePath: process.execPath,
+    processId: process.pid,
+  });
+  setTimeout(() => app.quit(), 250);
+  return { ...update, installing: true };
 });
 
 app.whenReady().then(() => {
