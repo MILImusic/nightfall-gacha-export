@@ -115,7 +115,13 @@ function render(store) {
   document.querySelector("#capturedAt").textContent = store.lastCapturedAt
     ? new Date(store.lastCapturedAt).toLocaleString() : "—";
   document.querySelector("#recordCount").textContent = store.records.length;
-  document.querySelector("#captureCount").textContent = store.captures.length;
+  const sixes = store.records.filter((record) => record.rarity === 6 && Number.isFinite(record.sixStarPity));
+  const average = sixes.length
+    ? sixes.reduce((sum, record) => sum + record.sixStarPity, 0) / sixes.length
+    : null;
+  document.querySelector("#averageSixPity").textContent = average === null
+    ? "—"
+    : `${sixes.every((record) => record.exactOrder) ? "" : "约 "}${average.toFixed(1)} 抽`;
   emptyState.hidden = store.records.length > 0;
   tableWrap.hidden = store.records.length === 0;
   renderPoolFilters(store);
