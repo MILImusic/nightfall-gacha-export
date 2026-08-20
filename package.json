@@ -1,6 +1,6 @@
 {
   "name": "nightfall-gacha-export",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "《夜幕之下》PC 端抽卡统计捕获与导出工具",
   "main": "src/main/main.js",
   "author": "MILImusic <149888220+MILImusic@users.noreply.github.com>",
@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "lint": "node --check src/main/main.js && node --check src/main/proxy.js && node --check src/main/store.js && node --check src/main/updater.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js && node --check src/renderer/theme.js",
+    "lint": "node --check src/main/main.js && node --check src/main/bootstrap.js && node --check src/main/proxy.js && node --check src/main/store.js && node --check src/main/updater.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js && node --check src/renderer/theme.js",
     "build:win": "electron-builder --win zip --x64"
   },
   "build": {

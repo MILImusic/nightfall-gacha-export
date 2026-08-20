@@ -1,12 +1,21 @@
+// 若数据目录里有已校验的新版本 payload，这里直接把控制权交给它；本文件
+// 其余部分不再执行。必须先于任何 ipcMain 注册与副作用。
+if (require("./bootstrap").maybeHandover()) return;
+
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const { finalizeUpdate } = require("./bootstrap");
 const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
 const { loadStore, mergeCapture, toCsv } = require("./store");
 const { enrichStore } = require("./catalog");
-const { checkForUpdate, downloadUpdate, scheduleWindowsInstall } = require("./updater");
+const { checkForUpdate, downloadUpdate } = require("./updater");
+
+// app.getVersion() 在 payload 模式下仍返回外壳 EXE 的版本；运行版本一律
+// 以当前加载的 package.json 为准。
+const RUNTIME_VERSION = require("../../package.json").version;
 
 let fetching = false;
 let mainWindow;
@@ -111,20 +120,24 @@ ipcMain.handle("data:export-csv", async () => {
   return { canceled: false };
 });
 
-ipcMain.handle("update:check", () => checkForUpdate(app.getVersion()));
+ipcMain.handle("update:check", () => checkForUpdate(RUNTIME_VERSION));
 
 ipcMain.handle("update:install", async () => {
   if (!app.isPackaged || process.platform !== "win32") throw new Error("直更只在已安装的 Windows 版本中可用");
-  const update = await checkForUpdate(app.getVersion());
+  const update = await checkForUpdate(RUNTIME_VERSION);
   if (!update.available) return update;
   const downloaded = await downloadUpdate(update, path.join(app.getPath("userData"), "updates"));
-  await scheduleWindowsInstall({
+  finalizeUpdate({
+    userData: app.getPath("userData"),
     pendingPath: downloaded.pendingPath,
-    targetPath: path.join(process.resourcesPath, "app.asar"),
-    executablePath: process.execPath,
-    processId: process.pid,
+    version: update.latestVersion,
+    sha256: downloaded.sha256,
   });
-  setTimeout(() => app.quit(), 250);
+  // 不再依赖任何外部进程：应用自己重启，下次启动由 bootstrap 加载新版本。
+  setTimeout(() => {
+    app.relaunch();
+    app.quit();
+  }, 250);
   return { ...update, installing: true };
 });
 

@@ -1,7 +1,6 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 
 const REPOSITORY = "MILImusic/nightfall-gacha-export";
 const UPDATE_ASSET = "nightfall-gacha-export-app.asar";
@@ -80,45 +79,6 @@ async function downloadUpdate(update, destinationDirectory, fetchImpl = githubFe
   return { pendingPath, sha256: actual };
 }
 
-function psQuote(value) {
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
-
-async function scheduleWindowsInstall({ pendingPath, targetPath, executablePath, processId, spawnImpl = spawn }) {
-  const scriptPath = path.join(path.dirname(pendingPath), "install-update.ps1");
-  const backupPath = `${targetPath}.update-backup`;
-  const logPath = path.join(path.dirname(pendingPath), "update-error.log");
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    `$processId = ${Number(processId)}`,
-    `$pending = ${psQuote(pendingPath)}`,
-    `$target = ${psQuote(targetPath)}`,
-    `$backup = ${psQuote(backupPath)}`,
-    `$executable = ${psQuote(executablePath)}`,
-    `$log = ${psQuote(logPath)}`,
-    "try {",
-    "  while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 200 }",
-    "  if (Test-Path -LiteralPath $target) { Copy-Item -LiteralPath $target -Destination $backup -Force }",
-    "  Move-Item -LiteralPath $pending -Destination $target -Force",
-    "  Start-Process -FilePath $executable",
-    "} catch {",
-    "  $_ | Out-File -LiteralPath $log -Encoding UTF8",
-    "  if (Test-Path -LiteralPath $backup) { Copy-Item -LiteralPath $backup -Destination $target -Force }",
-    "  Start-Process -FilePath $executable",
-    "}",
-    "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue",
-  ].join("\r\n");
-  // Windows PowerShell 5.1 needs a BOM to read Chinese install paths as UTF-8.
-  await fs.writeFile(scriptPath, `\ufeff${script}`, "utf8");
-  const child = spawnImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", scriptPath], {
-    detached: true,
-    windowsHide: true,
-    stdio: "ignore",
-  });
-  child.unref();
-  return { scriptPath, backupPath };
-}
-
 module.exports = {
   CHECKSUM_ASSET,
   REPOSITORY,
@@ -127,6 +87,5 @@ module.exports = {
   downloadUpdate,
   isNewerVersion,
   releaseAssets,
-  scheduleWindowsInstall,
   sha256,
 };

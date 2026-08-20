@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
-const { UPDATE_ASSET, checkForUpdate, downloadUpdate, isNewerVersion, scheduleWindowsInstall } = require("../src/main/updater");
+const { UPDATE_ASSET, checkForUpdate, downloadUpdate, isNewerVersion } = require("../src/main/updater");
 
 test("语义版本只把真正的新版本判为更新", () => {
   assert.equal(isNewerVersion("v0.2.0", "0.1.9"), true);
@@ -54,22 +54,3 @@ test("校验不一致时拒绝落地更新", async () => {
   await fs.rm(directory, { recursive: true, force: true });
 });
 
-test("Windows更新脚本支持中文路径并以独立进程启动", async () => {
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "夜幕更新-"));
-  const calls = [];
-  const child = { unrefCalled: false, unref() { this.unrefCalled = true; } };
-  const result = await scheduleWindowsInstall({
-    pendingPath: path.join(directory, "更新.pending"),
-    targetPath: "U:\\工具\\夜幕之下\\app.asar",
-    executablePath: "U:\\工具\\夜幕之下\\夜幕.exe",
-    processId: 42,
-    spawnImpl: (...args) => { calls.push(args); return child; },
-  });
-  const script = await fs.readFile(result.scriptPath, "utf8");
-  assert.equal(script.codePointAt(0), 0xfeff);
-  assert.match(script, /while \(Get-Process -Id \$processId/);
-  assert.equal(calls[0][0], "powershell.exe");
-  assert.equal(calls[0][2].detached, true);
-  assert.equal(child.unrefCalled, true);
-  await fs.rm(directory, { recursive: true, force: true });
-});
