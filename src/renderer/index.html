@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,34 +7,43 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="wordmark">
+          <span class="wordmark-name">NIGHTFALL</span>
+          <span class="wordmark-sub">契约记录导出</span>
+        </div>
+        <div class="actions">
+          <button id="themeToggle" class="ghost" type="button">夜间</button>
+          <button id="exportJson" class="ghost" type="button">导出 JSON</button>
+          <button id="exportCsv" class="ghost" type="button">导出 CSV</button>
+        </div>
+      </div>
+    </div>
+
     <main>
       <header>
         <div>
-          <p class="eyebrow">REIGN OF NIGHTFALL</p>
           <h1>契约记录导出</h1>
-          <p class="subtitle">通过游戏当前的唯一连接读取记录，不上传数据。</p>
+          <p class="subtitle">通过游戏当前的唯一连接读取记录，不上传数据。记录保存在本机，可按卡池查看并导出。</p>
         </div>
-        <div class="actions">
-          <button id="exportJson" class="secondary">导出 JSON</button>
-          <button id="exportCsv" class="secondary">导出 CSV</button>
-        </div>
-      </header>
-
-      <section class="capture-panel">
-        <div class="step-marker" id="stepMarker">1</div>
-        <div class="capture-copy">
-          <h2 id="captureTitle">准备接管</h2>
+        <section class="capture-panel">
+          <div class="capture-stage">
+            <span class="status-dot"></span>
+            <span id="captureTitle">准备接管</span>
+            <span class="step-marker" id="stepMarker"></span>
+          </div>
           <p id="captureHint">先启动连接接管，再启动或重新登录游戏。</p>
-        </div>
-        <button id="captureButton" class="primary">启动连接接管</button>
-      </section>
+          <button id="captureButton" class="primary" type="button">启动连接接管</button>
+        </section>
+      </header>
 
       <p id="status" role="status"></p>
 
       <section class="summary">
-        <div><span>最近捕获</span><strong id="capturedAt">—</strong></div>
         <div><span>记录总数</span><strong id="recordCount">0</strong></div>
         <div><span>六星平均抽数</span><strong id="averageSixPity">—</strong></div>
+        <div><span>最近捕获</span><strong id="capturedAt" class="summary-time">—</strong></div>
       </section>
 
       <section class="pity-progress-section">
@@ -54,27 +63,28 @@
         <div id="previewPanel" class="preview-panel" hidden>
           <div id="raritySummary" class="rarity-summary"></div>
           <div class="pagination">
-            <button type="button" id="previousPreviewPage" class="secondary">上一页</button>
+            <button type="button" id="previousPreviewPage" class="ghost">上一页</button>
             <span id="previewPageStatus">第 1 / 1 页</span>
-            <button type="button" id="nextPreviewPage" class="secondary">下一页</button>
+            <button type="button" id="nextPreviewPage" class="ghost">下一页</button>
           </div>
         </div>
         <div id="emptyState" class="empty">还没有记录。完成一次全量捕获后会显示在这里。</div>
         <div class="detail-panel" id="detailPanel" hidden>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>风格</th><th>星级</th><th>保底位置</th><th>时间</th></tr></thead>
+              <thead><tr><th>风格</th><th>星级</th><th>保底位置</th><th class="align-right">时间</th></tr></thead>
               <tbody id="recordRows"></tbody>
             </table>
           </div>
           <div class="pagination">
-            <button type="button" id="previousPage" class="secondary">上一页</button>
+            <button type="button" id="previousPage" class="ghost">上一页</button>
             <span id="pageStatus">第 1 / 1 页</span>
-            <button type="button" id="nextPage" class="secondary">下一页</button>
+            <button type="button" id="nextPage" class="ghost">下一页</button>
           </div>
         </div>
       </section>
     </main>
     <script src="app.js"></script>
+    <script src="theme.js"></script>
   </body>
 </html>
