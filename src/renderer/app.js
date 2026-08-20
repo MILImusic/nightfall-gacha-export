@@ -52,11 +52,12 @@ function renderRaritySummary() {
     const card = document.createElement("article");
     card.className = "six-star-card";
     const orderWarning = record.exactOrder ? "" : " · 顺序待重新获取校准";
-    card.innerHTML = `<strong></strong><span></span><small></small>`;
+    card.innerHTML = `<strong></strong><span></span><em class="pity-badge"></em><small></small>`;
     card.querySelector("strong").textContent = record.name ?? `结果 ${record.resultId}`;
     card.querySelector("span").textContent = record.character ?? "未知角色";
+    card.querySelector(".pity-badge").textContent = `${record.exactOrder ? "第" : "约第"} ${record.sixStarPity} 抽获得`;
     const sourcePool = record.poolName ?? record.pityGroupName ?? "未知卡池";
-    card.querySelector("small").textContent = `${record.pityGroupName}第 ${record.poolPullNumber} 抽 · ${record.sixStarPity} 抽出 · ${sourcePool}${orderWarning}`;
+    card.querySelector("small").textContent = `${record.pityGroupName}累计第 ${record.poolPullNumber} 抽 · ${sourcePool}${orderWarning}`;
     sixList.append(card);
   }
   if (sixes.length === 0) sixList.textContent = "该范围内还没有六星记录";

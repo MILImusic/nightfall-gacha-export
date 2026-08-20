@@ -47,7 +47,8 @@ kbd { min-width: 38px; padding: 5px 9px; color: #e5c38d; text-align: center; bac
 .six-star-list { display: grid; gap: 9px; }
 .six-star-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; padding: 12px 13px; border-left: 3px solid #d84c57; background: #1e1517; }
 .six-star-card strong { color: #ff8a92; }
-.six-star-card span { color: #a9abb1; }
+.six-star-card span { grid-column: 1; grid-row: 2; color: #a9abb1; }
+.pity-badge { grid-column: 2; grid-row: 1 / span 2; align-self: center; padding: 8px 11px; color: #fff1f2; background: #9f303a; border: 1px solid #d95a64; border-radius: 8px; font-size: 15px; font-style: normal; font-weight: 700; white-space: nowrap; }
 .six-star-card small { grid-column: 1 / -1; color: #9b7074; }
 .five-star-block { border-color: #6f5630; background: linear-gradient(145deg, #211b14, #12151a 58%); }
 .five-star-list { display: flex; flex-wrap: wrap; gap: 8px; }
