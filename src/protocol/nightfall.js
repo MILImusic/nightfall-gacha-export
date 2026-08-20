@@ -74,7 +74,7 @@ function decodeHistoryRecord(buffer) {
 function decodeHistoryResponse(payload) {
   const fields = decodeMessage(payload);
   return {
-    status: scalar(fields, 1),
+    offset: scalar(fields, 1),
     total: scalar(fields, 2),
     records: fields
       .filter((field) => field.fieldNumber === 3 && field.wireType === 2)
@@ -85,6 +85,37 @@ function decodeHistoryResponse(payload) {
 function decodeHistoryRequest(payload) {
   const fields = decodeMessage(payload);
   return { poolId: scalar(fields, 1), pageIndex: scalar(fields, 2) };
+}
+
+function encodeVarint(value) {
+  let current = BigInt(value);
+  const bytes = [];
+  do {
+    let byte = Number(current & 0x7fn);
+    current >>= 7n;
+    if (current) byte |= 0x80;
+    bytes.push(byte);
+  } while (current);
+  return Buffer.from(bytes);
+}
+
+function encodeHistoryRequest(poolId, pageIndex) {
+  return Buffer.concat([
+    Buffer.from([0x08]), encodeVarint(poolId),
+    Buffer.from([0x10]), encodeVarint(pageIndex),
+  ]);
+}
+
+function buildClientFrame(command, payload, requestId) {
+  const body = Buffer.alloc(9 + payload.length);
+  body.writeUInt32BE(requestId, 0);
+  Buffer.from(command, "hex").copy(body, 4);
+  body[7] = 0;
+  body[8] = requestId & 0xff;
+  payload.copy(body, 9);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(body.length);
+  return Buffer.concat([length, body]);
 }
 
 function reassembleSegments(segments) {
@@ -183,8 +214,10 @@ module.exports = {
   GAME_PORT,
   HISTORY_COMMAND,
   collectFlowFrames,
+  buildClientFrame,
   decodeHistoryRequest,
   decodeHistoryResponse,
+  encodeHistoryRequest,
   extractHistoryCapture,
   readVarint,
   reassembleSegments,

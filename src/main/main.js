@@ -1,12 +1,17 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-const { autoPaginate, capturePaths, startCapture, stopAndParseCapture } = require("./capture");
+const { execFile } = require("node:child_process");
+const { promisify } = require("node:util");
+const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
 const { loadStore, mergeCapture, toCsv } = require("./store");
+const { enrichStore } = require("./catalog");
 
-let captureActive = false;
-let paginationActive = false;
+let fetching = false;
 let mainWindow;
+let redirectorPid = null;
+const proxy = new NightfallProxy();
+const execFileAsync = promisify(execFile);
 
 function resourcePath(name) {
   return app.isPackaged
@@ -16,6 +21,22 @@ function resourcePath(name) {
 
 function dataPath() {
   return path.join(app.getPath("userData"), "records.json");
+}
+
+function quotePowerShell(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function redirectorAlive() {
+  if (!redirectorPid) return false;
+  try {
+    process.kill(redirectorPid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === "EPERM") return true;
+    redirectorPid = null;
+    return false;
+  }
 }
 
 function createWindow() {
@@ -35,41 +56,43 @@ function createWindow() {
   mainWindow = window;
 }
 
-async function finishCapture() {
-  if (!captureActive) throw new Error("尚未开始捕获");
-  const paths = capturePaths(app.getPath("temp"));
-  try {
-    const capture = await stopAndParseCapture({ scriptPath: resourcePath("capture.ps1"), ...paths });
-    if (capture.records.length === 0) {
-      throw new Error("没有捕获到抽卡历史。请先打开“契约记录”，再点“全部记录”。");
-    }
-    if (!capture.complete) {
-      throw new Error(`只读到 ${capture.records.length}/${capture.expectedTotal || "?"} 条。请重新开始捕获，再把鼠标放在下一页箭头上按 F8 自动翻页。`);
-    }
-    return mergeCapture(dataPath(), { ...capture, capturedAt: new Date().toISOString() });
-  } finally {
-    captureActive = false;
-  }
-}
-
-ipcMain.handle("capture:start", async () => {
+ipcMain.handle("history:fetch", async () => {
   if (process.platform !== "win32") throw new Error("数据捕获仅支持 Windows");
-  if (captureActive) return { active: true };
-  const paths = capturePaths(app.getPath("temp"));
-  await startCapture({ scriptPath: resourcePath("capture.ps1"), ...paths });
-  captureActive = true;
-  return { active: true };
+  if (fetching) throw new Error("正在获取记录，请稍候");
+  fetching = true;
+  try {
+    const capture = await proxy.fetchAll({ onProgress: (progress) => mainWindow?.webContents.send("history:progress", progress) });
+    if (!capture.complete) throw new Error(`只读到 ${capture.records.length}/${capture.expectedTotal} 条，未写入本地记录`);
+    const store = await mergeCapture(dataPath(), { ...capture, capturedAt: new Date().toISOString() });
+    return { store: enrichStore(store) };
+  } finally {
+    fetching = false;
+  }
 });
 
-ipcMain.handle("capture:finish", async () => {
-  const store = await finishCapture();
-  return { active: false, store };
+ipcMain.handle("proxy:status", () => ({ started: redirectorAlive(), connected: proxy.connected() }));
+
+ipcMain.handle("proxy:start", async () => {
+  if (process.platform !== "win32") throw new Error("连接接管仅支持 Windows");
+  await proxy.listen();
+  if (!redirectorAlive()) {
+    const executable = resourcePath("windivert/nightfall-redirect.exe");
+    const argumentList = `12090 ${PROXY_PORT} ${ALT_PORT} ${selectProxyAddress()} ${process.pid}`;
+    const command = `$p=Start-Process -FilePath ${quotePowerShell(executable)} ` +
+      `-ArgumentList ${quotePowerShell(argumentList)} -Verb RunAs -WindowStyle Hidden -PassThru; $p.Id`;
+    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true });
+    redirectorPid = Number.parseInt(stdout.trim(), 10);
+    if (!Number.isInteger(redirectorPid)) throw new Error("未取得连接接管进程编号");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!redirectorAlive()) throw new Error("连接接管驱动启动失败");
+  }
+  return { started: true, connected: proxy.connected() };
 });
 
-ipcMain.handle("data:get", () => loadStore(dataPath()));
+ipcMain.handle("data:get", async () => enrichStore(await loadStore(dataPath())));
 
 ipcMain.handle("data:export-json", async () => {
-  const store = await loadStore(dataPath());
+  const store = enrichStore(await loadStore(dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.json", filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
@@ -77,7 +100,7 @@ ipcMain.handle("data:export-json", async () => {
 });
 
 ipcMain.handle("data:export-csv", async () => {
-  const store = await loadStore(dataPath());
+  const store = enrichStore(await loadStore(dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `\ufeff${toCsv(store)}`, "utf8");
@@ -86,20 +109,6 @@ ipcMain.handle("data:export-csv", async () => {
 
 app.whenReady().then(() => {
   createWindow();
-  globalShortcut.register("F8", async () => {
-    if (!captureActive || paginationActive) return;
-    paginationActive = true;
-    mainWindow?.webContents.send("capture:auto-status", { state: "running" });
-    try {
-      await autoPaginate({ scriptPath: resourcePath("paginate.ps1") });
-      const store = await finishCapture();
-      mainWindow?.webContents.send("capture:auto-status", { state: "done", store });
-    } catch (error) {
-      mainWindow?.webContents.send("capture:auto-status", { state: "error", message: error.message });
-    } finally {
-      paginationActive = false;
-    }
-  });
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -109,4 +118,4 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("before-quit", () => { void proxy.close(); });

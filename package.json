@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "lint": "node --check src/main/main.js && node --check src/main/capture.js && node --check src/main/store.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js",
+    "lint": "node --check src/main/main.js && node --check src/main/proxy.js && node --check src/main/store.js && node --check src/protocol/pcapng.js && node --check src/protocol/nightfall.js && node --check src/renderer/app.js",
     "build:win": "electron-builder --win zip --x64"
   },
   "build": {
@@ -20,19 +20,14 @@
     },
     "files": [
       "src/**/*",
-      "resources/**/*",
       "package.json",
       "LICENSE",
       "README.md"
     ],
     "extraResources": [
       {
-        "from": "resources/capture.ps1",
-        "to": "capture.ps1"
-      },
-      {
-        "from": "resources/paginate.ps1",
-        "to": "paginate.ps1"
+        "from": "resources/windivert",
+        "to": "windivert"
       }
     ],
     "win": {

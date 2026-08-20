@@ -46,9 +46,10 @@ function csvCell(value) {
 }
 
 function toCsv(store) {
-  const header = ["recordId", "poolId", "resultId", "timestamp", "timestampMs"];
+  const header = ["recordId", "poolId", "resultId", "name", "character", "rarity", "poolPullNumber", "sixStarPity", "timestamp", "timestampMs"];
   const rows = [header, ...store.records.map((record) => [
-    record.key, record.poolId, record.resultId, record.timestamp, record.timestampMs,
+    record.key, record.poolId, record.resultId, record.name, record.character, record.rarity,
+    record.poolPullNumber, record.sixStarPity, record.timestamp, record.timestampMs,
   ])];
   return `${rows.map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
 }

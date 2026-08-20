@@ -33,6 +33,25 @@ kbd { min-width: 38px; padding: 5px 9px; color: #e5c38d; text-align: center; bac
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; font-size: 20px; }
 .section-heading p { font-size: 13px; }
+.pool-filters { display: flex; flex-wrap: wrap; gap: 9px; margin: 0 0 16px; }
+.pool-filter { display: flex; gap: 8px; align-items: center; padding: 8px 13px; color: #aaaeb7; background: #15181e; border: 1px solid #2d3139; border-radius: 999px; }
+.pool-filter strong { color: #d7b477; font-variant-numeric: tabular-nums; }
+.pool-filter.active { color: #17120b; background: #c7a36a; border-color: #c7a36a; }
+.pool-filter.active strong { color: #17120b; }
+.rarity-summary { display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; margin: 0 0 18px; }
+.rarity-block { min-width: 0; padding: 18px; border: 1px solid #30343d; border-radius: 13px; background: #12151a; }
+.six-star-block { border-color: #6f5630; background: linear-gradient(145deg, #211b14, #12151a 58%); }
+.rarity-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 13px; color: #b8bbc2; }
+.rarity-heading strong { color: #e0bd79; font-size: 22px; }
+.six-star-list { display: grid; gap: 9px; }
+.six-star-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 14px; padding: 12px 13px; border-left: 3px solid #d4aa5f; background: #191817; }
+.six-star-card strong { color: #f1d59d; }
+.six-star-card span { color: #a9abb1; }
+.six-star-card small { grid-column: 1 / -1; color: #81745f; }
+.five-star-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.five-star-list span { padding: 7px 9px; color: #d7d1e4; background: #201d27; border: 1px solid #3a3446; border-radius: 7px; font-size: 13px; }
+.rarity-6 td:first-child { color: #f0cf8d; font-weight: 650; }
+.rarity-5 td:first-child { color: #d2c5e4; }
 .empty { padding: 64px 24px; text-align: center; color: #70747d; border: 1px dashed #30343d; border-radius: 12px; }
 .table-wrap { overflow: hidden; border: 1px solid #2d3139; border-radius: 12px; background: #12151a; }
 table { width: 100%; border-collapse: collapse; }
@@ -48,4 +67,7 @@ tbody tr:hover { background: #181b21; }
   .capture-panel { grid-template-columns: auto 1fr; }
   .capture-panel button { grid-column: 1 / -1; }
   .summary { grid-template-columns: 1fr; }
+  .rarity-summary { grid-template-columns: 1fr; }
+  .pool-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .pool-filter { flex: 0 0 auto; }
 }
