@@ -1,11 +1,13 @@
 const cards = require("../data/cards.json");
 
 const cardById = new Map(cards.map((card) => [card.id, card]));
+const SHARED_SELECTION_POOLS = new Set([20002, 20003, 20004, 20005, 20006, 20007]);
 const SHARED_LIMITED_POOLS = new Set([30001, 30002, 30003, 30004, 30005]);
 
 function pityGroupForPool(poolId) {
   const id = Number(poolId);
   if (SHARED_LIMITED_POOLS.has(id)) return { id: "limited:directional", name: "限时定向契约（继承）" };
+  if (SHARED_SELECTION_POOLS.has(id)) return { id: "selection:standard", name: "常驻遴选契约（继承）" };
   if (id === 20001) return { id: "standard", name: "常规契约" };
   if (id === 10001) return { id: "starter", name: "起始契约" };
   return { id: `pool:${id}`, name: `卡池 ${id}` };

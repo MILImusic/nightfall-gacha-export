@@ -47,3 +47,14 @@ test("不同期限定 UP 池共用同一条六星保底计数", () => {
 test("未确认规则的新限定池不会擅自并入继承组", () => {
   assert.notEqual(pityGroupForPool(30006).id, pityGroupForPool(30005).id);
 });
+
+test("四种池分为四条保底链，常驻遴选跨期继承", () => {
+  const starter = pityGroupForPool(10001).id;
+  const standard = pityGroupForPool(20001).id;
+  const selection = pityGroupForPool(20002).id;
+  const limited = pityGroupForPool(30001).id;
+  assert.equal(new Set([starter, standard, selection, limited]).size, 4);
+  assert.equal(pityGroupForPool(20007).id, selection);
+  assert.notEqual(selection, standard);
+  assert.notEqual(selection, limited);
+});
