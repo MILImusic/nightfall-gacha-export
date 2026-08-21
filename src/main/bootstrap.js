@@ -183,6 +183,13 @@ function finalizeUpdate({ userData, pendingPath, version, sha256 }) {
   return { pointerFile: pointerPath(userData), payloadFile: destination };
 }
 
+// 交接标记必须在重启前清掉：app.relaunch() 启动的新进程会继承当前环境变量，
+// 标记留着的话新进程会以为"本次启动已经交接过"，直接跳过 handover 跑回内置旧版本。
+// 这正是"点更新自动重启后还是旧版、手动重开才生效"的成因。
+function clearHandoverFlag() {
+  delete process.env[PAYLOAD_ENV_FLAG];
+}
+
 // 在内置 main 最顶部调用。返回 true 表示已把控制权交给新版本（或崩溃后已
 // 安排重启），内置 main 不应再继续执行。
 function maybeHandover() {
@@ -201,7 +208,7 @@ function maybeHandover() {
     require(resolved.mainPath);
     return true;
   } catch (error) {
-    delete process.env[PAYLOAD_ENV_FLAG];
+    clearHandoverFlag();
     quarantinePointer(userData, "crashed");
     logUpdateEvent(userData, `payload crashed at boot: ${error?.message ?? error}`);
     app.relaunch();
@@ -213,6 +220,7 @@ function maybeHandover() {
 module.exports = {
   PAYLOAD_ENV_FLAG,
   cleanupLegacyArtifacts,
+  clearHandoverFlag,
   cleanupPayloads,
   finalizeUpdate,
   isNewerVersion,

@@ -136,3 +136,37 @@ test("bootstrap与updater的版本比较语义一致", () => {
   assert.equal(isNewerVersion("0.1.2", "0.1.2"), false);
   assert.equal(isNewerVersion("v0.2.0", "0.10.0"), false);
 });
+
+test("clearHandoverFlag 清掉交接标记——relaunch 前必须调用，否则新进程跑回内置旧版", () => {
+  const { PAYLOAD_ENV_FLAG, clearHandoverFlag } = require("../src/main/bootstrap");
+  const previous = process.env[PAYLOAD_ENV_FLAG];
+  try {
+    process.env[PAYLOAD_ENV_FLAG] = "0.1.5";
+    clearHandoverFlag();
+    assert.equal(PAYLOAD_ENV_FLAG in process.env, false);
+    // 幂等：没有标记时再调用也不抛
+    clearHandoverFlag();
+    assert.equal(PAYLOAD_ENV_FLAG in process.env, false);
+  } finally {
+    if (previous === undefined) delete process.env[PAYLOAD_ENV_FLAG];
+    else process.env[PAYLOAD_ENV_FLAG] = previous;
+  }
+});
+
+test("更新路径与崩溃路径都在 relaunch 之前清标记（防回归）", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  // 只看真正的代码行：注释里也会提到 app.relaunch()，按行扫描并跳过注释，避免测试匹配到说明文字。
+  const codeLines = (file) => fs.readFileSync(path.join(__dirname, file), "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => !line.startsWith("//") && !line.startsWith("*"));
+  for (const file of ["../src/main/main.js", "../src/main/bootstrap.js"]) {
+    const lines = codeLines(file);
+    const clearIndex = lines.findIndex((line) => /^clearHandoverFlag\(\);/.test(line));
+    const relaunchIndex = lines.findIndex((line) => /^app\.relaunch\(\);/.test(line));
+    assert.ok(clearIndex >= 0, `${file} 应调用 clearHandoverFlag()`);
+    assert.ok(relaunchIndex >= 0, `${file} 应调用 app.relaunch()`);
+    assert.ok(clearIndex < relaunchIndex, `${file} 必须先清标记再 relaunch`);
+  }
+});

@@ -1,6 +1,6 @@
 {
   "name": "nightfall-gacha-export",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "《夜幕之下》PC 端抽卡统计捕获与导出工具",
   "main": "src/main/main.js",
   "author": "MILImusic <149888220+MILImusic@users.noreply.github.com>",

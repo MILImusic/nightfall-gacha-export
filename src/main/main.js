@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
-const { finalizeUpdate } = require("./bootstrap");
+const { clearHandoverFlag, finalizeUpdate } = require("./bootstrap");
 const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
 const { loadStore, mergeCapture, toCsv } = require("./store");
 const { enrichStore } = require("./catalog");
@@ -268,7 +268,9 @@ ipcMain.handle("update:install", async () => {
     sha256: downloaded.sha256,
   });
   // 不再依赖任何外部进程：应用自己重启，下次启动由 bootstrap 加载新版本。
+  // 必须先清掉交接标记，否则 relaunch 出来的新进程继承它、跳过 handover 跑回内置旧版本。
   setTimeout(() => {
+    clearHandoverFlag();
     app.relaunch();
     app.quit();
   }, 250);
