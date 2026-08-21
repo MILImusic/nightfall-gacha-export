@@ -7,6 +7,7 @@ const {
   formatDiagnostics,
   classifyDnsResidue,
   classifyGameState,
+  firewallActiveForNetwork,
   isResidueDns,
   listIpv4,
   preflightWarnings,
@@ -349,4 +350,42 @@ test("formatDiagnostics 展示提权状态", () => {
   );
   assert.match(formatDiagnostics({ version: "0.1.9", elevated: true }), /本工具是否以管理员身份运行：是/);
   assert.match(formatDiagnostics({ version: "0.1.9" }), /本工具是否以管理员身份运行：未知/);
+});
+
+test("firewallActiveForNetwork 判断当前网络的防火墙是否还开着", () => {
+  assert.equal(firewallActiveForNetwork("Domain=True,Private=True,Public=True", "Private"), true);
+  // 用户把专用网络的防火墙关了，当前又正好在专用网络
+  assert.equal(firewallActiveForNetwork("Domain=True,Private=False,Public=True", "Private"), false);
+  // 多网卡：只要有一个所在网络的防火墙还开着就算开着
+  assert.equal(firewallActiveForNetwork("Domain=True,Private=False,Public=True", "Private;Public"), true);
+  assert.equal(firewallActiveForNetwork("Domain=True,Private=False,Public=False", "Private;Public"), false);
+  assert.equal(firewallActiveForNetwork(null, "Private"), null);
+  assert.equal(firewallActiveForNetwork("Private=False", null), null);
+});
+
+test("preflightWarnings 防火墙关闭时不再催放行规则（误报修复）", () => {
+  // 防火墙关着：规则不存在、Profile 不覆盖，都不该报
+  assert.deepEqual(
+    preflightWarnings({ firewallRulePresent: false, firewallEnabled: false }),
+    [],
+  );
+  assert.deepEqual(
+    preflightWarnings({
+      firewallCoversNetwork: false,
+      firewallProfiles: "Private",
+      networkCategories: "Public",
+      firewallEnabled: false,
+    }),
+    [],
+  );
+  // 防火墙开着仍照常提示
+  assert.equal(preflightWarnings({ firewallRulePresent: false, firewallEnabled: true }).length, 1);
+  // 开关未知时保持原行为（不因为查不到就闭嘴）
+  assert.equal(preflightWarnings({ firewallRulePresent: false, firewallEnabled: null }).length, 1);
+});
+
+test("formatDiagnostics 说明防火墙关闭时规则缺失不影响使用", () => {
+  const text = formatDiagnostics({ version: "0.1.9", firewallEnabled: false, firewallRulePresent: false });
+  assert.match(text, /当前网络的防火墙是否开启：否（已关闭，无需放行规则）/);
+  assert.match(text, /防火墙放行规则是否存在：否（防火墙已关闭，不影响使用）/);
 });

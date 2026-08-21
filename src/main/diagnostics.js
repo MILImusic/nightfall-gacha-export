@@ -52,6 +52,24 @@ function classifyGameState(entries) {
   return meaningful.length ? { state: "other", ports: meaningful } : { state: "idle", ports };
 }
 
+// profileStates 形如 "Domain=True,Private=True,Public=False"；categories 形如 "Private;Public"。
+// 判断"当前所在网络的防火墙是否还开着"：全部相关 profile 都关掉时返回 false——
+// 此时根本不需要放行规则，再提示"规则不存在"就是误导用户做无用功。
+function firewallActiveForNetwork(profileStates, categories) {
+  if (!profileStates || !categories) return null;
+  const states = new Map();
+  for (const pair of profileStates.split(",")) {
+    const [name, value] = pair.split("=").map((item) => item?.trim());
+    if (name) states.set(name, String(value).toLowerCase() === "true");
+  }
+  const categoryToProfile = { Public: "Public", Private: "Private", DomainAuthenticated: "Domain" };
+  const current = categories.split(/[;,]/).map((item) => item.trim()).filter(Boolean);
+  if (!states.size || !current.length) return null;
+  const relevant = current.map((category) => states.get(categoryToProfile[category] ?? category));
+  if (relevant.every((value) => value === undefined)) return null;
+  return relevant.some((value) => value === true);
+}
+
 // 规则 Profile（如 "Private, Public" / "Any"）是否覆盖当前网络类别（如 "Public"）。
 // 任一参数缺失返回 null=未知。
 function firewallCovers(profiles, categories) {
@@ -77,7 +95,8 @@ function formatDiagnostics(data) {
       : ["  （无）"]),
     `连接接管驱动是否在运行：${yesNo(data.redirectorAlive)}`,
     `是否已接管游戏连接：${yesNo(data.proxyConnected)}`,
-    `防火墙放行规则是否存在：${yesNo(data.firewallRulePresent)}`,
+    `当前网络的防火墙是否开启：${yesNo(data.firewallEnabled)}${data.firewallEnabled === false ? "（已关闭，无需放行规则）" : ""}`,
+    `防火墙放行规则是否存在：${yesNo(data.firewallRulePresent)}${data.firewallRulePresent === false && data.firewallEnabled === false ? "（防火墙已关闭，不影响使用）" : ""}`,
     `防火墙规则是否覆盖当前网络：${yesNo(data.firewallCoversNetwork)}${
       data.firewallCoversNetwork === false
         ? `（规则放行：${data.firewallProfiles}；当前网络：${data.networkCategories}——把规则的"公用"也勾上，或把当前网络改成"专用"）`
@@ -135,7 +154,7 @@ function preflightWarnings(data) {
       "系统「内存完整性(HVCI)」开启中，会拦截接管驱动：到「Windows 安全中心 → 设备安全性 → 内核隔离」关闭它，重启电脑后再试。",
     );
   }
-  if (data.firewallCoversNetwork === false) {
+  if (data.firewallCoversNetwork === false && data.firewallEnabled !== false) {
     warnings.push(
       `防火墙放行规则没有覆盖当前网络（规则放行：${data.firewallProfiles}；当前网络：${data.networkCategories}）：` +
         "到「控制面板 → Windows Defender 防火墙 → 允许应用」把本工具的“公用”一列也勾上，或把当前网络改成“专用”。",
@@ -159,7 +178,7 @@ function preflightWarnings(data) {
         "对应网卡右键属性 → IPv4 → 把 DNS 改回“自动获得”，否则整台电脑都可能上不了网。",
     );
   }
-  if (data.firewallRulePresent === false) {
+  if (data.firewallRulePresent === false && data.firewallEnabled !== false) {
     warnings.push(
       "还没有本工具的防火墙放行规则：启动接管后若弹出 Windows 防火墙询问窗口，请把“专用网络”和“公用网络”两项都勾上再点“允许访问”。",
     );
@@ -209,6 +228,7 @@ async function collectDiagnosticsData({
   let firewallRulePresent = null;
   let firewallProfiles = null;
   let networkCategories = null;
+  let firewallEnabled = null;
   let memoryIntegrityOn = null;
   let systemProxyOn = null;
   let systemProxyServer = null;
@@ -221,12 +241,14 @@ async function collectDiagnosticsData({
         `$r = Get-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' }; ` +
           "$p = ($r | ForEach-Object { \"$($_.Profile)\" }) -join ';'; " +
           "$c = (Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.NetworkCategory)\" }) -join ';'; " +
-          '"$p|$c"',
+          "$e = (Get-NetFirewallProfile -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.Name)=$($_.Enabled)\" }) -join ','; " +
+          '"$p|$c|$e"',
       );
-      const [profilesPart, categoriesPart = ""] = out.trim().split("|");
+      const [profilesPart, categoriesPart = "", statesPart = ""] = out.trim().split("|");
       firewallRulePresent = profilesPart.trim() !== "";
       firewallProfiles = profilesPart.trim() || null;
       networkCategories = categoriesPart.trim() || null;
+      firewallEnabled = firewallActiveForNetwork(statesPart.trim(), categoriesPart.trim());
     } catch (error) {
       notes.push(`查询防火墙规则失败：${error.message}`);
     }
@@ -304,6 +326,7 @@ async function collectDiagnosticsData({
     firewallRulePresent,
     firewallProfiles,
     networkCategories,
+    firewallEnabled,
     firewallCoversNetwork: firewallCovers(firewallProfiles, networkCategories),
     memoryIntegrityOn,
     systemProxyOn,
@@ -331,6 +354,7 @@ module.exports = {
   firewallCovers,
   classifyDnsResidue,
   classifyGameState,
+  firewallActiveForNetwork,
   formatDiagnostics,
   isResidueDns,
   listIpv4,
