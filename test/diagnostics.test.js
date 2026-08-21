@@ -41,7 +41,17 @@ test("classifyGameState 分辨游戏的四种状态", () => {
 test("preflightWarnings 覆盖游戏状态：端口变了要报，没连上要催登录", () => {
   const other = preflightWarnings({ gameState: { state: "other", ports: [13000] } });
   assert.equal(other.length, 1);
-  assert.match(other[0], /连的是 13000 端口，不是本工具接管的 12090/);
+  assert.match(other[0], /连的是 13000 端口，本工具当前接管的是 12090/);
+  assert.match(other[0], /点一次「启动连接接管」即可自动切换/);
+  // 接管已经适配到游戏正在用的端口时不再报警
+  assert.deepEqual(
+    preflightWarnings({ gameState: { state: "other", ports: [12085] }, activeGamePort: 12085 }),
+    [],
+  );
+  // 接管守着自适应端口、游戏又换到第三个端口时仍要报，且提示里是当前接管端口
+  const adapted = preflightWarnings({ gameState: { state: "other", ports: [13000] }, activeGamePort: 12085 });
+  assert.equal(adapted.length, 1);
+  assert.match(adapted[0], /本工具当前接管的是 12085/);
   const idle = preflightWarnings({ gameState: { state: "idle", ports: [] }, redirectorAlive: true });
   assert.equal(idle.length, 1);
   assert.match(idle[0], /还没有连上游戏服务器/);

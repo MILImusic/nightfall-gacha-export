@@ -15,6 +15,7 @@ const { enrichStore } = require("./catalog");
 const { checkForUpdate, downloadUpdate } = require("./updater");
 const { collectDiagnostics, collectDiagnosticsData, preflightWarnings } = require("./diagnostics");
 const { decideWhatsNew, notesFor } = require("./changelog");
+const { DEFAULT_GAME_PORT, detectGamePort, portMismatch, resolveGamePort } = require("./gameport");
 
 // 启动接管的等待上限：超过它就判定为“授权弹窗没点/被拦截”，给用户明确报错，
 // 而不是让按钮永远停在“正在启动”。
@@ -27,6 +28,7 @@ const RUNTIME_VERSION = require("../../package.json").version;
 let fetching = false;
 let mainWindow;
 let redirectorPid = null;
+let activeGamePort = DEFAULT_GAME_PORT;
 const proxy = new NightfallProxy();
 const execFileAsync = promisify(execFile);
 
@@ -90,14 +92,50 @@ ipcMain.handle("history:fetch", async () => {
   }
 });
 
-ipcMain.handle("proxy:status", () => ({ started: redirectorAlive(), connected: proxy.connected() }));
+ipcMain.handle("proxy:status", () => ({ started: redirectorAlive(), connected: proxy.connected(), gamePort: activeGamePort }));
+
+// 记住上次成功接管的游戏端口：游戏还没启动时探测不到，靠它避免退回可能错误的默认值。
+function gamePortPath() {
+  return path.join(app.getPath("userData"), "gameport.json");
+}
+
+async function rememberedGamePort() {
+  const value = (await readJsonQuiet(gamePortPath()))?.port;
+  return Number.isInteger(value) ? value : null;
+}
+
+async function rememberGamePort(port) {
+  if (!Number.isInteger(port)) return;
+  await fs.writeFile(
+    gamePortPath(),
+    `${JSON.stringify({ port, seenAt: new Date().toISOString() })}\n`,
+    "utf8",
+  );
+}
+
+// 探测游戏此刻实际连着的端口；游戏没开或查询失败都返回 null（不抛，接管照常走默认值）。
+async function detectRunningGamePort() {
+  if (process.platform !== "win32") return null;
+  try {
+    const data = await collectDiagnosticsData(diagnosticsInputs());
+    return detectGamePort(data.gameConnections);
+  } catch {
+    return null;
+  }
+}
 
 ipcMain.handle("proxy:start", async () => {
   if (process.platform !== "win32") throw new Error("连接接管仅支持 Windows");
   await proxy.listen();
   if (!redirectorAlive()) {
     const executable = resourcePath("windivert/nightfall-redirect.exe");
-    const argumentList = `12090 ${PROXY_PORT} ${ALT_PORT} ${selectProxyAddress()} ${process.pid}`;
+    const { port: gamePort, source: portSource } = resolveGamePort({
+      detected: await detectRunningGamePort(),
+      remembered: await rememberedGamePort(),
+    });
+    activeGamePort = gamePort;
+    if (portSource === "detected") await rememberGamePort(gamePort);
+    const argumentList = `${gamePort} ${PROXY_PORT} ${ALT_PORT} ${selectProxyAddress()} ${process.pid}`;
     const command = `$p=Start-Process -FilePath ${quotePowerShell(executable)} ` +
       `-ArgumentList ${quotePowerShell(argumentList)} -Verb RunAs -WindowStyle Hidden -PassThru; $p.Id`;
     let stdout;
@@ -123,7 +161,7 @@ ipcMain.handle("proxy:start", async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     if (!redirectorAlive()) throw new Error("连接接管驱动启动失败");
   }
-  return { started: true, connected: proxy.connected() };
+  return { started: true, connected: proxy.connected(), gamePort: activeGamePort };
 });
 
 async function runDiagnosticsPowerShell(script) {
@@ -147,6 +185,7 @@ function diagnosticsInputs() {
     proxyConnected: proxy.connected(),
     runPowerShell: process.platform === "win32" ? runDiagnosticsPowerShell : null,
     collectedAt: new Date().toISOString(),
+    activeGamePort,
   };
 }
 

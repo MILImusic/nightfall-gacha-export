@@ -97,6 +97,7 @@ function formatDiagnostics(data) {
           ? data.gameConnections.join("；")
           : "（没有找到游戏进程——游戏还没启动）"
     }`,
+    `本工具接管的端口：${data.activeGamePort ?? GAME_PORT}${data.activeGamePort && data.activeGamePort !== GAME_PORT ? "（已自动适配，非默认值）" : ""}`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
       data.gamePortConnections == null
         ? "未知"
@@ -162,10 +163,11 @@ function preflightWarnings(data) {
       "还没有本工具的防火墙放行规则：启动接管后若弹出 Windows 防火墙询问窗口，请把“专用网络”和“公用网络”两项都勾上再点“允许访问”。",
     );
   }
-  if (data.gameState?.state === "other") {
+  const takeoverPort = Number.isInteger(data.activeGamePort) ? data.activeGamePort : GAME_PORT;
+  if (data.gameState?.state === "other" && !data.gameState.ports.includes(takeoverPort)) {
     warnings.push(
-      `你的游戏连的是 ${data.gameState.ports.join("、")} 端口，不是本工具接管的 ${GAME_PORT}：` +
-        "可能是游戏更新换了端口，或者你用的客户端版本不同。请把这条提示反馈给作者，附上「复制诊断信息」的内容。",
+      `你的游戏连的是 ${data.gameState.ports.join("、")} 端口，本工具当前接管的是 ${takeoverPort}：` +
+        "点一次「启动连接接管」即可自动切换到游戏正在用的端口（若接管已在运行，请先关闭工具再重开）。",
     );
   }
   if (data.gameState?.state === "idle" && data.redirectorAlive) {
@@ -186,6 +188,7 @@ async function collectDiagnosticsData({
   proxyConnected,
   runPowerShell,
   collectedAt,
+  activeGamePort = null,
 }) {
   const notes = [];
   let proxyAddress = null;
@@ -300,6 +303,7 @@ async function collectDiagnosticsData({
     gamePortConnections,
     gameConnections,
     gameState: classifyGameState(gameConnections),
+    activeGamePort,
     dnsEntries,
     notes,
     collectedAt,
