@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("nightfall", {
   installUpdate: () => ipcRenderer.invoke("update:install"),
   collectDiagnostics: () => ipcRenderer.invoke("diagnostics:collect"),
   preflightCheck: () => ipcRenderer.invoke("preflight:check"),
+  applyNetworkFix: () => ipcRenderer.invoke("netfix:apply"),
   getWhatsNew: () => ipcRenderer.invoke("whatsnew:get"),
   ackWhatsNew: () => ipcRenderer.invoke("whatsnew:ack"),
   getDisclaimerAccepted: () => ipcRenderer.invoke("disclaimer:get"),

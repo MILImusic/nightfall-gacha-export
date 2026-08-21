@@ -335,6 +335,23 @@ diagnosticsButton.addEventListener("click", async () => {
   }
 });
 
+const netfixButton = document.querySelector("#netfixButton");
+netfixButton.addEventListener("click", async () => {
+  netfixButton.disabled = true;
+  try {
+    const result = await window.nightfall.applyNetworkFix();
+    const parts = [...result.done, ...result.failed];
+    status.textContent = parts.length
+      ? `${parts.join("；")}。若 DNS 曾被加速器改过，请按上方提示手动改回“自动获得”。`
+      : "没有可修复的残留。";
+    void runPreflight();
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    netfixButton.disabled = false;
+  }
+});
+
 const disclaimerOverlay = document.querySelector("#disclaimerOverlay");
 document.querySelector("#disclaimerAccept").addEventListener("click", async () => {
   try {

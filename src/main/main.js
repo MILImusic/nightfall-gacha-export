@@ -127,9 +127,10 @@ ipcMain.handle("proxy:start", async () => {
 });
 
 async function runDiagnosticsPowerShell(script) {
+  // 中文 Windows 的控制台默认 GBK，中文网卡名（如"以太网"）会在 stdout 乱码，强制 UTF-8 输出。
   const { stdout } = await execFileAsync(
     "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-Command", script],
+    ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ${script}`],
     { windowsHide: true, timeout: 8000 },
   );
   return stdout;
@@ -154,6 +155,29 @@ ipcMain.handle("diagnostics:collect", async () => collectDiagnostics(diagnostics
 ipcMain.handle("preflight:check", async () => {
   const data = await collectDiagnosticsData(diagnosticsInputs());
   return { warnings: preflightWarnings(data) };
+});
+
+// 一键修复网络残留：只做无需提权、不会误伤用户主动配置的两件事。
+// DNS 被改的情况只提示不代改（见 preflightWarnings）——没有"原样"快照，重置会误伤手动配 DNS 的用户。
+ipcMain.handle("netfix:apply", async () => {
+  if (process.platform !== "win32") throw new Error("修复网络残留仅支持 Windows");
+  const done = [];
+  const failed = [];
+  try {
+    await runDiagnosticsPowerShell(
+      "Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -Name ProxyEnable -Value 0",
+    );
+    done.push("已关闭系统代理");
+  } catch {
+    failed.push("关闭系统代理失败");
+  }
+  try {
+    await execFileAsync("ipconfig", ["/flushdns"], { windowsHide: true, timeout: 8000 });
+    done.push("已清空 DNS 缓存");
+  } catch {
+    failed.push("清空 DNS 缓存失败");
+  }
+  return { done, failed };
 });
 
 function disclaimerPath() {

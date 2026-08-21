@@ -5,6 +5,31 @@
 const FIREWALL_RULE_NAME = "夜幕之下抽卡记录导出";
 const GAME_PORT = 12090;
 
+// 加速器/代理残留 DNS 的特征：本机回环或基准测试保留段（Clash/加速器 fake-ip 常用 198.18/15）。
+function isResidueDns(address) {
+  return /^127\.|^198\.1[89]\./.test(address);
+}
+
+// 代理/VPN 类虚拟网卡的命名特征（Clash Meta/mihomo、cfw-tap、各类 TUN/TAP/VPN）。
+const VIRTUAL_ADAPTER_HINT = /clash|meta|mihomo|sing|cfw|tun|tap|wireguard|openvpn|vpn/i;
+
+// entries 形如 ["WLAN:198.18.0.2,223.5.5.5", "以太网:192.168.1.1"]。
+// 把含残留特征地址的网卡分成两类：virtual=代理自己的虚拟网卡（说明代理还在运行），
+// physical=物理网卡被改了 DNS（代理退了但没恢复）。两类的修法完全不同。
+// 入参为 null（未知）时返回 null。
+function classifyDnsResidue(entries) {
+  if (entries == null) return null;
+  const virtual = [];
+  const physical = [];
+  for (const entry of entries) {
+    const alias = entry.split(":")[0];
+    const servers = entry.split(":").slice(1).join(":");
+    if (!servers.split(",").some((address) => isResidueDns(address.trim()))) continue;
+    (VIRTUAL_ADAPTER_HINT.test(alias) ? virtual : physical).push(entry);
+  }
+  return { virtual, physical };
+}
+
 // 规则 Profile（如 "Private, Public" / "Any"）是否覆盖当前网络类别（如 "Public"）。
 // 任一参数缺失返回 null=未知。
 function firewallCovers(profiles, categories) {
@@ -40,6 +65,9 @@ function formatDiagnostics(data) {
     }`,
     `内存完整性(HVCI)是否开启：${yesNo(data.memoryIntegrityOn)}${data.memoryIntegrityOn ? "（会拦截接管驱动，建议关闭后重启）" : ""}`,
     `系统代理是否开启：${yesNo(data.systemProxyOn)}${data.systemProxyOn ? `（${data.systemProxyServer || "地址未知"}——说明有代理/加速器类软件在运行，可能抢走游戏流量）` : ""}`,
+    `各网卡 DNS：${
+      data.dnsEntries == null ? "未知" : data.dnsEntries.length ? data.dnsEntries.join("；") : "（无）"
+    }`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
       data.gamePortConnections == null
         ? "未知"
@@ -87,6 +115,19 @@ function preflightWarnings(data) {
       `检测到系统代理已开启（${data.systemProxyServer || "地址未知"}），代理/加速器可能抢走游戏流量：请彻底退出代理与加速器（含右下角托盘图标）后再启动接管。`,
     );
   }
+  const residue = classifyDnsResidue(data.dnsEntries);
+  if (residue?.virtual.length) {
+    warnings.push(
+      `检测到代理/加速器的虚拟网卡仍在活动（${residue.virtual.join("；")}）：TUN/虚拟网卡模式的代理与连接接管冲突，` +
+        "请彻底退出代理与加速器（含右下角托盘图标）后再启动接管。",
+    );
+  }
+  if (residue?.physical.length) {
+    warnings.push(
+      `你的 DNS 还指向已退出的代理/加速器（${residue.physical.join("；")}）：到「设置 → 网络和 Internet → 更改适配器选项」，` +
+        "对应网卡右键属性 → IPv4 → 把 DNS 改回“自动获得”，否则整台电脑都可能上不了网。",
+    );
+  }
   if (data.firewallRulePresent === false) {
     warnings.push(
       "还没有本工具的防火墙放行规则：启动接管后若弹出 Windows 防火墙询问窗口，请把“专用网络”和“公用网络”两项都勾上再点“允许访问”。",
@@ -123,6 +164,7 @@ async function collectDiagnosticsData({
   let systemProxyOn = null;
   let systemProxyServer = null;
   let gamePortConnections = null;
+  let dnsEntries = null;
   if (typeof runPowerShell === "function") {
     try {
       const out = await runPowerShell(
@@ -171,6 +213,16 @@ async function collectDiagnosticsData({
     } catch (error) {
       notes.push(`查询游戏端口连接失败：${error.message}`);
     }
+    try {
+      const out = await runPowerShell(
+        "(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
+          "Where-Object { $_.ServerAddresses } | " +
+          "ForEach-Object { \"$($_.InterfaceAlias):$($_.ServerAddresses -join ',')\" }) -join ';'",
+      );
+      dnsEntries = out.trim() ? out.trim().split(";").map((item) => item.trim()).filter(Boolean) : [];
+    } catch (error) {
+      notes.push(`查询 DNS 配置失败：${error.message}`);
+    }
   }
 
   return {
@@ -189,6 +241,7 @@ async function collectDiagnosticsData({
     systemProxyOn,
     systemProxyServer,
     gamePortConnections,
+    dnsEntries,
     notes,
     collectedAt,
   };
@@ -204,7 +257,9 @@ module.exports = {
   collectDiagnostics,
   collectDiagnosticsData,
   firewallCovers,
+  classifyDnsResidue,
   formatDiagnostics,
+  isResidueDns,
   listIpv4,
   preflightWarnings,
 };

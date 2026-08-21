@@ -5,9 +5,51 @@ const {
   collectDiagnosticsData,
   firewallCovers,
   formatDiagnostics,
+  classifyDnsResidue,
+  isResidueDns,
   listIpv4,
   preflightWarnings,
 } = require("../src/main/diagnostics");
+
+test("isResidueDns 识别回环与 fake-ip 段，放过正常 DNS", () => {
+  assert.equal(isResidueDns("127.0.0.1"), true);
+  assert.equal(isResidueDns("198.18.0.2"), true);
+  assert.equal(isResidueDns("198.19.255.1"), true);
+  assert.equal(isResidueDns("223.5.5.5"), false);
+  assert.equal(isResidueDns("192.168.1.1"), false);
+  assert.equal(isResidueDns("198.180.0.1"), false);
+});
+
+test("classifyDnsResidue 区分代理虚拟网卡与被改DNS的物理网卡（shin-win真机形态）", () => {
+  // 2026-08-21 shin-win 实测：Meta(Clash TUN)=198.18.0.2、cfw-tap=10.0.0.1、以太网/WLAN 正常
+  const result = classifyDnsResidue([
+    "Meta:198.18.0.2",
+    "cfw-tap:10.0.0.1",
+    "以太网:192.168.99.1",
+    "WLAN:192.168.99.1,192.168.1.1",
+  ]);
+  assert.deepEqual(result, { virtual: ["Meta:198.18.0.2"], physical: [] });
+  // 代理退了但物理网卡 DNS 没恢复
+  assert.deepEqual(classifyDnsResidue(["WLAN:198.18.0.2,223.5.5.5", "vEthernet:127.0.0.1"]), {
+    virtual: [],
+    physical: ["WLAN:198.18.0.2,223.5.5.5", "vEthernet:127.0.0.1"],
+  });
+  assert.deepEqual(classifyDnsResidue(["WLAN:223.5.5.5"]), { virtual: [], physical: [] });
+  assert.equal(classifyDnsResidue(null), null);
+});
+
+test("preflightWarnings DNS 两类残留话术不同，未知不误报", () => {
+  const virtual = preflightWarnings({ dnsEntries: ["Meta:198.18.0.2"] });
+  assert.equal(virtual.length, 1);
+  assert.match(virtual[0], /虚拟网卡仍在活动（Meta:198\.18\.0\.2）/);
+  assert.match(virtual[0], /彻底退出代理与加速器/);
+  const physical = preflightWarnings({ dnsEntries: ["WLAN:198.18.0.2"] });
+  assert.equal(physical.length, 1);
+  assert.match(physical[0], /DNS 还指向已退出的代理\/加速器（WLAN:198\.18\.0\.2）/);
+  assert.match(physical[0], /自动获得/);
+  assert.deepEqual(preflightWarnings({ dnsEntries: null }), []);
+  assert.deepEqual(preflightWarnings({ dnsEntries: ["WLAN:223.5.5.5"] }), []);
+});
 
 test("preflightWarnings 按严重程度列出命中的环境问题", () => {
   const warnings = preflightWarnings({
@@ -163,7 +205,7 @@ test("collectDiagnostics 解析防火墙、HVCI 与系统代理的 PowerShell �
     runPowerShell,
     collectedAt: "2026-08-21T12:30:00.000Z",
   });
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   assert.match(text, /防火墙放行规则是否存在：是/);
   assert.match(text, /防火墙规则是否覆盖当前网络：是（当前网络：Private）/);
   assert.match(text, /内存完整性\(HVCI\)是否开启：是/);
