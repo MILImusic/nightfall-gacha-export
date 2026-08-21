@@ -19,6 +19,7 @@ function formatDiagnostics(data) {
     `是否已接管游戏连接：${yesNo(data.proxyConnected)}`,
     `防火墙放行规则是否存在：${yesNo(data.firewallRulePresent)}`,
     `内存完整性(HVCI)是否开启：${yesNo(data.memoryIntegrityOn)}${data.memoryIntegrityOn ? "（会拦截接管驱动，建议关闭后重启）" : ""}`,
+    `系统代理是否开启：${yesNo(data.systemProxyOn)}${data.systemProxyOn ? `（${data.systemProxyServer || "地址未知"}——说明有代理/加速器类软件在运行，可能抢走游戏流量）` : ""}`,
   ];
   if (data.notes?.length) {
     lines.push("备注：", ...data.notes.map((note) => `  · ${note}`));
@@ -61,6 +62,8 @@ async function collectDiagnostics({
 
   let firewallRulePresent = null;
   let memoryIntegrityOn = null;
+  let systemProxyOn = null;
+  let systemProxyServer = null;
   if (typeof runPowerShell === "function") {
     try {
       const out = await runPowerShell(
@@ -80,6 +83,20 @@ async function collectDiagnostics({
     } catch (error) {
       notes.push(`查询内存完整性失败：${error.message}`);
     }
+    try {
+      const out = await runPowerShell(
+        "$p = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' -ErrorAction SilentlyContinue; \"$($p.ProxyEnable)|$($p.ProxyServer)\"",
+      );
+      const [enable, ...serverParts] = out.trim().split("|");
+      if (enable === "1") {
+        systemProxyOn = true;
+        systemProxyServer = serverParts.join("|").trim() || null;
+      } else if (enable === "0" || enable === "") {
+        systemProxyOn = false;
+      }
+    } catch (error) {
+      notes.push(`查询系统代理失败：${error.message}`);
+    }
   }
 
   return formatDiagnostics({
@@ -92,6 +109,8 @@ async function collectDiagnostics({
     proxyConnected,
     firewallRulePresent,
     memoryIntegrityOn,
+    systemProxyOn,
+    systemProxyServer,
     notes,
     collectedAt,
   });
