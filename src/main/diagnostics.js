@@ -4,6 +4,9 @@
 
 const FIREWALL_RULE_NAME = "夜幕之下抽卡记录导出";
 const GAME_PORT = 12090;
+// 游戏主进程名，模糊匹配以兼容改名或别的发行版本。
+// 游戏内嵌的浏览器插件进程走 443，不是主连接，因此按端口而非进程数判断状态。
+const GAME_PROCESS_HINT = /nightfall|yemu|yemuzhixia/i;
 
 // 加速器/代理残留 DNS 的特征：本机回环或基准测试保留段（Clash/加速器 fake-ip 常用 198.18/15）。
 function isResidueDns(address) {
@@ -28,6 +31,25 @@ function classifyDnsResidue(entries) {
     (VIRTUAL_ADAPTER_HINT.test(alias) ? virtual : physical).push(entry);
   }
   return { virtual, physical };
+}
+
+// entries 形如 ["ReignofNightfall|203.0.113.10:12090|Established", ...]（游戏进程的外部连接）。
+// 判定游戏此刻处在哪一档：null=未知 / absent=进程没跑 / idle=进程在但没连服务器 /
+// connected=连着 12090（正常）/ other=连着别的端口（端口变了或换了发行版本）。
+function classifyGameState(entries) {
+  if (entries == null) return null;
+  if (!entries.length) return { state: "absent", ports: [] };
+  const ports = [];
+  for (const entry of entries) {
+    const [, endpoint = ""] = entry.split("|");
+    const port = Number.parseInt(endpoint.split(":").pop(), 10);
+    if (Number.isInteger(port) && !ports.includes(port)) ports.push(port);
+  }
+  if (!ports.length) return { state: "idle", ports: [] };
+  if (ports.includes(GAME_PORT)) return { state: "connected", ports };
+  // 443/80 是登录页、公告、CDN 这类附属连接，只有它们说明主连接还没建立。
+  const meaningful = ports.filter((port) => port !== 443 && port !== 80);
+  return meaningful.length ? { state: "other", ports: meaningful } : { state: "idle", ports };
 }
 
 // 规则 Profile（如 "Private, Public" / "Any"）是否覆盖当前网络类别（如 "Public"）。
@@ -67,6 +89,13 @@ function formatDiagnostics(data) {
     `系统代理是否开启：${yesNo(data.systemProxyOn)}${data.systemProxyOn ? `（${data.systemProxyServer || "地址未知"}——说明有代理/加速器类软件在运行，可能抢走游戏流量）` : ""}`,
     `各网卡 DNS：${
       data.dnsEntries == null ? "未知" : data.dnsEntries.length ? data.dnsEntries.join("；") : "（无）"
+    }`,
+    `游戏进程与其连接：${
+      data.gameConnections == null
+        ? "未知"
+        : data.gameConnections.length
+          ? data.gameConnections.join("；")
+          : "（没有找到游戏进程——游戏还没启动）"
     }`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
       data.gamePortConnections == null
@@ -133,6 +162,15 @@ function preflightWarnings(data) {
       "还没有本工具的防火墙放行规则：启动接管后若弹出 Windows 防火墙询问窗口，请把“专用网络”和“公用网络”两项都勾上再点“允许访问”。",
     );
   }
+  if (data.gameState?.state === "other") {
+    warnings.push(
+      `你的游戏连的是 ${data.gameState.ports.join("、")} 端口，不是本工具接管的 ${GAME_PORT}：` +
+        "可能是游戏更新换了端口，或者你用的客户端版本不同。请把这条提示反馈给作者，附上「复制诊断信息」的内容。",
+    );
+  }
+  if (data.gameState?.state === "idle" && data.redirectorAlive) {
+    warnings.push("游戏已经打开，但还没有连上游戏服务器：请完成登录进入游戏；已经登录过的需要完全退出游戏再重新登录一次。");
+  }
   return warnings;
 }
 
@@ -164,6 +202,7 @@ async function collectDiagnosticsData({
   let systemProxyOn = null;
   let systemProxyServer = null;
   let gamePortConnections = null;
+  let gameConnections = null;
   let dnsEntries = null;
   if (typeof runPowerShell === "function") {
     try {
@@ -214,6 +253,24 @@ async function collectDiagnosticsData({
       notes.push(`查询游戏端口连接失败：${error.message}`);
     }
     try {
+      // 按进程名找游戏，列出它自己的外部连接——比只看 12090 端口更硬：
+      // 能区分"游戏没开"、"游戏开着没连服务器"、"连的不是 12090"三种情况。
+      const out = await runPowerShell(
+        `$g = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '${GAME_PROCESS_HINT.source}' }; ` +
+          "$rows = @(); " +
+          "foreach ($p in $g) { " +
+          "  $cs = Get-NetTCPConnection -OwningProcess $p.Id -ErrorAction SilentlyContinue | " +
+          "        Where-Object { $_.RemoteAddress -notmatch '^(127\\.|0\\.0\\.0\\.0|::)' }; " +
+          "  if ($cs) { foreach ($c in $cs) { $rows += \"$($p.ProcessName)|$($c.RemoteAddress):$($c.RemotePort)|$($c.State)\" } } " +
+          "  else { $rows += \"$($p.ProcessName)|-|-\" } " +
+          "}; " +
+          "($rows | Sort-Object -Unique) -join ';'",
+      );
+      gameConnections = out.trim() ? out.trim().split(";").map((item) => item.trim()).filter(Boolean) : [];
+    } catch (error) {
+      notes.push(`查询游戏进程连接失败：${error.message}`);
+    }
+    try {
       const out = await runPowerShell(
         "(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
           "Where-Object { $_.ServerAddresses } | " +
@@ -241,6 +298,8 @@ async function collectDiagnosticsData({
     systemProxyOn,
     systemProxyServer,
     gamePortConnections,
+    gameConnections,
+    gameState: classifyGameState(gameConnections),
     dnsEntries,
     notes,
     collectedAt,
@@ -258,6 +317,7 @@ module.exports = {
   collectDiagnosticsData,
   firewallCovers,
   classifyDnsResidue,
+  classifyGameState,
   formatDiagnostics,
   isResidueDns,
   listIpv4,

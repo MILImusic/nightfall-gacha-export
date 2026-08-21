@@ -6,10 +6,50 @@ const {
   firewallCovers,
   formatDiagnostics,
   classifyDnsResidue,
+  classifyGameState,
   isResidueDns,
   listIpv4,
   preflightWarnings,
 } = require("../src/main/diagnostics");
+
+test("classifyGameState 分辨游戏的四种状态", () => {
+  // 游戏主连接走 12090，旁边的 443 是登录页/公告（示例地址取自文档保留段 RFC5737）
+  assert.deepEqual(
+    classifyGameState([
+      "ReignofNightfall|203.0.113.10:12090|Established",
+      "ReignofNightfall|203.0.113.20:443|Established",
+    ]),
+    { state: "connected", ports: [12090, 443] },
+  );
+  // 进程没跑
+  assert.deepEqual(classifyGameState([]), { state: "absent", ports: [] });
+  // 进程在但一条外部连接都没有
+  assert.deepEqual(classifyGameState(["ReignofNightfall|-|-"]), { state: "idle", ports: [] });
+  // 只连了登录页/CDN，主连接还没建立 → 仍算没连上
+  assert.deepEqual(classifyGameState(["ReignofNightfall|203.0.113.30:443|Established"]), {
+    state: "idle",
+    ports: [443],
+  });
+  // 端口变了
+  assert.deepEqual(classifyGameState(["ReignofNightfall|1.2.3.4:13000|Established"]), {
+    state: "other",
+    ports: [13000],
+  });
+  assert.equal(classifyGameState(null), null);
+});
+
+test("preflightWarnings 覆盖游戏状态：端口变了要报，没连上要催登录", () => {
+  const other = preflightWarnings({ gameState: { state: "other", ports: [13000] } });
+  assert.equal(other.length, 1);
+  assert.match(other[0], /连的是 13000 端口，不是本工具接管的 12090/);
+  const idle = preflightWarnings({ gameState: { state: "idle", ports: [] }, redirectorAlive: true });
+  assert.equal(idle.length, 1);
+  assert.match(idle[0], /还没有连上游戏服务器/);
+  // 接管都没启动时不催登录（正常流程就是先接管后开游戏）
+  assert.deepEqual(preflightWarnings({ gameState: { state: "idle", ports: [] }, redirectorAlive: false }), []);
+  assert.deepEqual(preflightWarnings({ gameState: { state: "connected", ports: [12090] } }), []);
+  assert.deepEqual(preflightWarnings({ gameState: { state: "absent", ports: [] }, redirectorAlive: true }), []);
+});
 
 test("isResidueDns 识别回环与 fake-ip 段，放过正常 DNS", () => {
   assert.equal(isResidueDns("127.0.0.1"), true);
@@ -20,13 +60,13 @@ test("isResidueDns 识别回环与 fake-ip 段，放过正常 DNS", () => {
   assert.equal(isResidueDns("198.180.0.1"), false);
 });
 
-test("classifyDnsResidue 区分代理虚拟网卡与被改DNS的物理网卡（shin-win真机形态）", () => {
-  // 2026-08-21 shin-win 实测：Meta(Clash TUN)=198.18.0.2、cfw-tap=10.0.0.1、以太网/WLAN 正常
+test("classifyDnsResidue 区分代理虚拟网卡与被改DNS的物理网卡（真实环境的常见形态）", () => {
+  // 常见形态：代理的 TUN 网卡拿 fake-ip 段、tap 网卡拿私有段，物理网卡 DNS 正常
   const result = classifyDnsResidue([
     "Meta:198.18.0.2",
     "cfw-tap:10.0.0.1",
-    "以太网:192.168.99.1",
-    "WLAN:192.168.99.1,192.168.1.1",
+    "以太网:192.168.1.1",
+    "WLAN:192.168.1.1,192.168.1.1",
   ]);
   assert.deepEqual(result, { virtual: ["Meta:198.18.0.2"], physical: [] });
   // 代理退了但物理网卡 DNS 没恢复
@@ -144,7 +184,7 @@ test("formatDiagnostics 没选出地址时给出说明", () => {
 });
 
 test("firewallCovers 兼容真机形态：弹窗生成的多条单 Profile 规则 + 多网卡多类别", () => {
-  // 2026-08-21 shin-win 实测输出：规则四条（TCP/UDP × 专用/公用），网卡四个类别其一为 Public
+  // 防火墙弹窗生成的是多条单 Profile 规则（TCP/UDP × 专用/公用），多网卡机器会报多个网络类别
   assert.equal(firewallCovers("Private;Private;Public;Public", "Private;Private;Public;Private"), true);
   // 弹窗只勾了"家用/专用"而当前有网卡被判公用（广东用户案）
   assert.equal(firewallCovers("Private;Private", "Private;Public"), false);
@@ -191,6 +231,7 @@ test("collectDiagnostics 解析防火墙、HVCI 与系统代理的 PowerShell �
     if (script.includes("Get-NetFirewallRule")) return "Private, Public|Private\r\n";
     if (script.includes("HypervisorEnforcedCodeIntegrity")) return "1\r\n";
     if (script.includes("Internet Settings")) return "1|127.0.0.1:7897\r\n";
+    if (script.includes("Get-Process")) return "ReignofNightfall|203.0.113.10:12090|Established\r\n";
     if (script.includes("Get-NetTCPConnection")) return "Established -> 203.0.113.5\r\n";
     return "";
   };
@@ -205,7 +246,8 @@ test("collectDiagnostics 解析防火墙、HVCI 与系统代理的 PowerShell �
     runPowerShell,
     collectedAt: "2026-08-21T12:30:00.000Z",
   });
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
+  assert.match(text, /游戏进程与其连接：ReignofNightfall\|203\.0\.113\.10:12090\|Established/);
   assert.match(text, /防火墙放行规则是否存在：是/);
   assert.match(text, /防火墙规则是否覆盖当前网络：是（当前网络：Private）/);
   assert.match(text, /内存完整性\(HVCI\)是否开启：是/);

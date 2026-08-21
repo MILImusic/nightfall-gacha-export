@@ -262,8 +262,8 @@ test("接管地址跳过 Clash fake-ip 与 Tailscale，优先真实局域网", (
   assert.equal(selectProxyAddress({
     clash: [{ family: "IPv4", internal: false, address: "198.18.0.1" }],
     tailscale: [{ family: "IPv4", internal: false, address: "100.80.24.125" }],
-    ethernet: [{ family: "IPv4", internal: false, address: "192.168.99.2" }],
-  }), "192.168.99.2");
+    ethernet: [{ family: "IPv4", internal: false, address: "192.168.1.20" }],
+  }), "192.168.1.20");
 });
 
 test("透明代理在同一游戏连接内注入请求且不把响应塞回游戏", async () => {
