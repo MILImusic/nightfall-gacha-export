@@ -97,6 +97,7 @@ function formatDiagnostics(data) {
           ? data.gameConnections.join("；")
           : "（没有找到游戏进程——游戏还没启动）"
     }`,
+    `本工具是否以管理员身份运行：${yesNo(data.elevated)}${data.elevated === false ? "（未提权，启动接管时需要通过 UAC 授权弹窗）" : ""}`,
     `本工具接管的端口：${data.activeGamePort ?? GAME_PORT}${data.activeGamePort && data.activeGamePort !== GAME_PORT ? "（已自动适配，非默认值）" : ""}`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
       data.gamePortConnections == null
@@ -170,6 +171,12 @@ function preflightWarnings(data) {
         "点一次「启动连接接管」即可自动切换到游戏正在用的端口（若接管已在运行，请先关闭工具再重开）。",
     );
   }
+  if (data.elevated === false && data.redirectorAlive === false) {
+    warnings.push(
+      "本工具当前不是以管理员身份运行：点「启动连接接管」时会弹出管理员授权窗口，它可能被其他窗口挡住、" +
+        "或因系统 UAC 设置被改动而卡住。更稳妥的做法是完全退出工具，右键工具图标选「以管理员身份运行」再打开——这样无需授权弹窗。",
+    );
+  }
   if (data.gameState?.state === "idle" && data.redirectorAlive) {
     warnings.push("游戏已经打开，但还没有连上游戏服务器：游戏不用重启——先完成登录；若已登录，进入一次「契约 → 抽卡记录」界面即可。");
   }
@@ -189,6 +196,7 @@ async function collectDiagnosticsData({
   runPowerShell,
   collectedAt,
   activeGamePort = null,
+  elevated = null,
 }) {
   const notes = [];
   let proxyAddress = null;
@@ -304,6 +312,7 @@ async function collectDiagnosticsData({
     gameConnections,
     gameState: classifyGameState(gameConnections),
     activeGamePort,
+    elevated,
     dnsEntries,
     notes,
     collectedAt,

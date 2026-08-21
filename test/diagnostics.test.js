@@ -329,3 +329,24 @@ test("collectDiagnostics 无 runPowerShell 时防火墙/HVCI 保持未知", asyn
   assert.match(text, /系统代理是否开启：未知/);
   assert.match(text, /游戏端口\(12090\)的 TCP 连接：未知/);
 });
+
+test("preflightWarnings 未提权且接管未起时，建议以管理员身份运行", () => {
+  const warnings = preflightWarnings({ elevated: false, redirectorAlive: false });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /不是以管理员身份运行/);
+  assert.match(warnings[0], /右键工具图标选「以管理员身份运行」/);
+  // 已提权、或接管已经起来了，都不再提示
+  assert.deepEqual(preflightWarnings({ elevated: true, redirectorAlive: false }), []);
+  assert.deepEqual(preflightWarnings({ elevated: false, redirectorAlive: true }), []);
+  // 未知不误报
+  assert.deepEqual(preflightWarnings({ elevated: null, redirectorAlive: false }), []);
+});
+
+test("formatDiagnostics 展示提权状态", () => {
+  assert.match(
+    formatDiagnostics({ version: "0.1.9", elevated: false }),
+    /本工具是否以管理员身份运行：否（未提权，启动接管时需要通过 UAC 授权弹窗）/,
+  );
+  assert.match(formatDiagnostics({ version: "0.1.9", elevated: true }), /本工具是否以管理员身份运行：是/);
+  assert.match(formatDiagnostics({ version: "0.1.9" }), /本工具是否以管理员身份运行：未知/);
+});

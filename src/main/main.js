@@ -6,7 +6,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
-const { execFile } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const { promisify } = require("node:util");
 const { clearHandoverFlag, finalizeUpdate } = require("./bootstrap");
 const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
@@ -94,6 +94,24 @@ ipcMain.handle("history:fetch", async () => {
 
 ipcMain.handle("proxy:status", () => ({ started: redirectorAlive(), connected: proxy.connected(), gamePort: activeGamePort }));
 
+// 工具自身是否以管理员身份运行。已提权时不需要再走 Start-Process -Verb RunAs——
+// 那条提权调用会弹 UAC，而用户改过 UAC 策略时它可能永远不返回（按钮永远停在"正在启动"）。
+let elevatedCache = null;
+async function isElevated() {
+  if (elevatedCache !== null) return elevatedCache;
+  if (process.platform !== "win32") return (elevatedCache = false);
+  try {
+    const out = await runDiagnosticsPowerShell(
+      "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent())" +
+        ".IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+    );
+    elevatedCache = out.trim().toLowerCase() === "true";
+  } catch {
+    elevatedCache = false;
+  }
+  return elevatedCache;
+}
+
 // 记住上次成功接管的游戏端口：游戏还没启动时探测不到，靠它避免退回可能错误的默认值。
 function gamePortPath() {
   return path.join(app.getPath("userData"), "gameport.json");
@@ -136,6 +154,20 @@ ipcMain.handle("proxy:start", async () => {
     activeGamePort = gamePort;
     if (portSource === "detected") await rememberGamePort(gamePort);
     const argumentList = `${gamePort} ${PROXY_PORT} ${ALT_PORT} ${selectProxyAddress()} ${process.pid}`;
+    // 已经是管理员就直接起进程：绕开 UAC 弹窗这一整个环节，也就不存在"卡在正在启动"。
+    if (await isElevated()) {
+      const child = spawn(executable, argumentList.split(" "), {
+        windowsHide: true,
+        detached: true,
+        stdio: "ignore",
+      });
+      child.unref();
+      if (!Number.isInteger(child.pid)) throw new Error("连接接管程序启动失败，请重试。");
+      redirectorPid = child.pid;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (!redirectorAlive()) throw new Error("连接接管驱动启动失败：可能被杀毒软件拦截，请临时关闭后重试。");
+      return { started: true, connected: proxy.connected(), gamePort: activeGamePort, elevated: true };
+    }
     const command = `$p=Start-Process -FilePath ${quotePowerShell(executable)} ` +
       `-ArgumentList ${quotePowerShell(argumentList)} -Verb RunAs -WindowStyle Hidden -PassThru; $p.Id`;
     let stdout;
@@ -189,10 +221,11 @@ function diagnosticsInputs() {
   };
 }
 
-ipcMain.handle("diagnostics:collect", async () => collectDiagnostics(diagnosticsInputs()));
+ipcMain.handle("diagnostics:collect", async () =>
+  collectDiagnostics({ ...diagnosticsInputs(), elevated: await isElevated() }));
 
 ipcMain.handle("preflight:check", async () => {
-  const data = await collectDiagnosticsData(diagnosticsInputs());
+  const data = await collectDiagnosticsData({ ...diagnosticsInputs(), elevated: await isElevated() });
   return { warnings: preflightWarnings(data) };
 });
 

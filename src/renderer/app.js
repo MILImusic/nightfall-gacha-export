@@ -272,6 +272,20 @@ nextPreviewPage.addEventListener("click", () => {
   renderRaritySummary();
 });
 
+// 界面层的启动看门狗：比主进程的 30 秒超时略长，用来兜住"主进程调用永不返回"的情况。
+const START_WATCHDOG_MS = 40000;
+function startProxyWatchdog() {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(
+        "启动接管超过 40 秒没有任何结果。最常见的原因是管理员授权弹窗没有被点到——它可能被挡在其他窗口后面（按 Alt+Tab 找找），" +
+        "或者你的系统关闭/改动过用户账户控制(UAC)导致授权流程卡住。" +
+        "最可靠的办法：完全退出本工具，右键工具图标选「以管理员身份运行」再打开——这样就不再需要授权弹窗。",
+      ));
+    }, START_WATCHDOG_MS);
+  });
+}
+
 captureButton.addEventListener("click", async () => {
   captureButton.disabled = true;
   try {
@@ -279,7 +293,9 @@ captureButton.addEventListener("click", async () => {
       captureButton.textContent = "正在启动";
       captureTitle.textContent = "正在启动连接接管";
       status.textContent = "请在 UAC 窗口中允许管理员权限…";
-      await window.nightfall.startProxy();
+      // 看门狗：主进程那条提权调用有可能卡在等待 UAC 而永不返回（用户改过 UAC 策略时尤其如此），
+      // 底层超时未必杀得掉那个等待中的进程。这一层完全在界面里，保证按钮不会永远停在"正在启动"。
+      await Promise.race([window.nightfall.startProxy(), startProxyWatchdog()]);
       status.textContent = "接管已启动。现在登录游戏即可；如果游戏已经登录着，进入一次「契约 → 抽卡记录」界面。接管成功后按钮会自动变成“获取全部记录”。";
       proxyStartedAt = Date.now();
       void runPreflight();
@@ -294,7 +310,9 @@ captureButton.addEventListener("click", async () => {
       ? `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`
       : `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
   } catch (error) {
-    status.textContent = error.message;
+    const reason = humanizeError(error);
+    if (!proxyConnected) showFailure("接管没能启动", reason, "");
+    else status.textContent = reason;
   } finally {
     captureButton.disabled = false;
     captureButton.textContent = proxyConnected ? "获取全部记录" : "启动连接接管";
@@ -399,10 +417,21 @@ async function showWhatsNewOnLaunch() {
 
 void showWhatsNewOnLaunch();
 
-const updateErrorOverlay = document.querySelector("#updateErrorOverlay");
-document.querySelector("#updateErrorClose").addEventListener("click", () => {
-  updateErrorOverlay.hidden = true;
+const failureOverlay = document.querySelector("#failureOverlay");
+document.querySelector("#failureClose").addEventListener("click", () => {
+  failureOverlay.hidden = true;
 });
+
+// 重要失败一律弹窗：状态栏那行小字用户在等待时几乎不会看，这是"更新失败没提示"同一课。
+function showFailure(title, reason, hint) {
+  document.querySelector("#failureTitle").textContent = title;
+  document.querySelector("#failureReason").textContent = reason;
+  const hintNode = document.querySelector("#failureHint");
+  hintNode.textContent = hint ?? "";
+  hintNode.hidden = !hint;
+  failureOverlay.hidden = false;
+  status.textContent = `${title}：${reason}`;
+}
 
 // IPC 抛出的错误在渲染进程侧会被套上 "Error invoking remote method 'x': Error: " 前缀，
 // 直接显示给用户是技术噪音，剥掉只留真正的原因。
@@ -412,10 +441,12 @@ function humanizeError(error) {
 }
 
 function showUpdateFailure(reason) {
-  document.querySelector("#updateErrorReason").textContent = reason;
-  updateErrorOverlay.hidden = false;
+  showFailure(
+    "更新失败",
+    reason,
+    "当前版本没有被改动，可以照常使用。你可以稍后再点一次「更新版本」，或到 GitHub 仓库的 Releases 页面手动下载最新压缩包。",
+  );
   updateButton.textContent = "更新版本";
-  status.textContent = `更新失败：${reason}`;
 }
 
 updateButton.addEventListener("click", async () => {
