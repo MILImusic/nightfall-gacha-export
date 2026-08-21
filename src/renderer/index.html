@@ -36,7 +36,7 @@
             <span id="captureTitle">准备接管</span>
             <span class="step-marker" id="stepMarker"></span>
           </div>
-          <p id="captureHint">先启动连接接管，再启动或重新登录游戏。</p>
+          <p id="captureHint">先启动连接接管；游戏没开就直接登录，已经开着就进一次「契约 → 抽卡记录」。</p>
           <button id="captureButton" class="primary" type="button">启动连接接管</button>
         </section>
       </header>
@@ -88,6 +88,16 @@
         </div>
       </section>
     </main>
+    <div id="updateErrorOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="updateErrorTitle">
+        <h2 id="updateErrorTitle">更新失败</h2>
+        <div class="disclaimer-body">
+          <p id="updateErrorReason"></p>
+          <p>当前版本没有被改动，可以照常使用。你可以稍后再点一次「更新版本」，或到 GitHub 仓库的 Releases 页面手动下载最新压缩包。</p>
+        </div>
+        <button id="updateErrorClose" class="primary" type="button">知道了</button>
+      </div>
+    </div>
     <div id="whatsnewOverlay" class="disclaimer-overlay" hidden>
       <div class="disclaimer-card">
         <h2 id="whatsnewTitle">更新内容</h2>

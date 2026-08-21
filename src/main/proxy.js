@@ -205,9 +205,9 @@ class NightfallProxy {
   }
 
   requestPage(offset) {
-    if (!this.connected()) return Promise.reject(new Error("尚未接管游戏连接，请先启动接管再重新登录游戏"));
+    if (!this.connected()) return Promise.reject(new Error("尚未接管游戏连接，请先启动接管，再进入一次游戏里的「契约 → 抽卡记录」界面"));
     if (this.waiter) return Promise.reject(new Error("已有历史请求正在进行"));
-    if (this.lastUpstreamSequence === null) return Promise.reject(new Error("尚未观察到游戏协议序号，请先进入契约记录"));
+    if (this.lastUpstreamSequence === null) return Promise.reject(new Error("尚未观察到游戏协议序号，请先进入游戏里的「契约 → 抽卡记录」界面"));
     const sequence = (this.lastUpstreamSequence + 1) >>> 0;
     const requestId = sequence & 0xff;
     this.lastUpstreamSequence = sequence;

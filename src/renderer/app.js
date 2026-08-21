@@ -280,7 +280,7 @@ captureButton.addEventListener("click", async () => {
       captureTitle.textContent = "正在启动连接接管";
       status.textContent = "请在 UAC 窗口中允许管理员权限…";
       await window.nightfall.startProxy();
-      status.textContent = "接管已启动。请现在启动或重新登录游戏；连接成功后按钮会自动变成“获取全部记录”。";
+      status.textContent = "接管已启动。现在登录游戏即可；如果游戏已经登录着，进入一次「契约 → 抽卡记录」界面。接管成功后按钮会自动变成“获取全部记录”。";
       proxyStartedAt = Date.now();
       void runPreflight();
       return;
@@ -399,16 +399,45 @@ async function showWhatsNewOnLaunch() {
 
 void showWhatsNewOnLaunch();
 
+const updateErrorOverlay = document.querySelector("#updateErrorOverlay");
+document.querySelector("#updateErrorClose").addEventListener("click", () => {
+  updateErrorOverlay.hidden = true;
+});
+
+// IPC 抛出的错误在渲染进程侧会被套上 "Error invoking remote method 'x': Error: " 前缀，
+// 直接显示给用户是技术噪音，剥掉只留真正的原因。
+function humanizeError(error) {
+  const raw = error?.message ?? String(error);
+  return raw.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, "").trim() || "未知错误";
+}
+
+function showUpdateFailure(reason) {
+  document.querySelector("#updateErrorReason").textContent = reason;
+  updateErrorOverlay.hidden = false;
+  updateButton.textContent = "更新版本";
+  status.textContent = `更新失败：${reason}`;
+}
+
 updateButton.addEventListener("click", async () => {
   updateButton.disabled = true;
   try {
-    if (!pendingUpdate?.available) return;
+    if (!pendingUpdate?.available) {
+      showUpdateFailure("没有取得可用的新版本信息，可能是启动时的检查没有完成。请重开工具后再试。");
+      return;
+    }
     updateButton.textContent = "正在更新…";
     status.textContent = `正在下载并校验 v${pendingUpdate.latestVersion}，完成后会自动重启…`;
-    await window.nightfall.installUpdate();
+    const result = await window.nightfall.installUpdate();
+    // 正常路径下主进程会在几百毫秒后重启应用；没有进入安装状态就是失败。
+    if (!result?.installing) {
+      showUpdateFailure(
+        result?.available === false
+          ? "服务器上没有找到比当前更新的版本，可能新版本刚刚被撤下。"
+          : "更新没有进入安装状态，请稍后重试。",
+      );
+    }
   } catch (error) {
-    updateButton.textContent = "更新版本";
-    status.textContent = error.message;
+    showUpdateFailure(humanizeError(error));
   } finally {
     updateButton.disabled = false;
   }
@@ -436,7 +465,7 @@ let waitingHintOn = false;
 
 function renderPreflight() {
   const items = waitingHintOn
-    ? [...preflightItems, "接管已开启，但游戏的连接还没有进来：请现在重新登录游戏（已登录的需要完全退出再重开）。"]
+    ? [...preflightItems, "接管已开启，但游戏的连接还没有进来：游戏不用重启——还没登录就直接登录，已经登录了就进一次「契约 → 抽卡记录」（已经在该界面则退出去再进一次）。"]
     : preflightItems;
   preflightBox.replaceChildren(
     ...items.map((text) => {
@@ -469,7 +498,7 @@ setInterval(async () => {
       proxyConnected = next.connected;
       captureButton.textContent = proxyConnected ? "获取全部记录" : "启动连接接管";
       captureTitle.textContent = proxyConnected ? "连接已接管" : "准备接管";
-      if (proxyConnected) status.textContent = "已接管游戏的当前连接。进入契约记录后即可获取全部记录。";
+      if (proxyConnected) status.textContent = "已接管游戏连接，现在可以点「获取全部记录」了。";
     }
     const shouldHint = Boolean(
       next.started && !next.connected && proxyStartedAt && Date.now() - proxyStartedAt > 30000,

@@ -102,7 +102,7 @@ function formatDiagnostics(data) {
         ? "未知"
         : data.gamePortConnections.length
           ? `${data.gamePortConnections.length} 条（${data.gamePortConnections.join("；")}）${data.proxyConnected === false ? "——有连接但未经过本工具，流量被其他软件截走或接管未生效" : ""}`
-          : `无${data.redirectorAlive ? "——游戏还没有建立连接，请在接管开启的状态下重新登录游戏" : ""}`
+          : `无${data.redirectorAlive ? "——游戏还没有建立连接，请在接管开启的状态下进入一次游戏里的「契约 → 抽卡记录」界面" : ""}`
     }`,
   ];
   if (data.notes?.length) {
@@ -169,7 +169,7 @@ function preflightWarnings(data) {
     );
   }
   if (data.gameState?.state === "idle" && data.redirectorAlive) {
-    warnings.push("游戏已经打开，但还没有连上游戏服务器：请完成登录进入游戏；已经登录过的需要完全退出游戏再重新登录一次。");
+    warnings.push("游戏已经打开，但还没有连上游戏服务器：游戏不用重启——先完成登录；若已登录，进入一次「契约 → 抽卡记录」界面即可。");
   }
   return warnings;
 }
