@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { collectDiagnostics, formatDiagnostics, listIpv4 } = require("../src/main/diagnostics");
+const { collectDiagnostics, firewallCovers, formatDiagnostics, listIpv4 } = require("../src/main/diagnostics");
 
 test("listIpv4 只取非内部 IPv4", () => {
   const result = listIpv4({
@@ -46,13 +46,48 @@ test("formatDiagnostics 没选出地址时给出说明", () => {
   assert.match(text, /本机 IPv4 网卡：\n {2}（无）/);
 });
 
+test("firewallCovers 判定规则 Profile 与当前网络类别", () => {
+  assert.equal(firewallCovers("Any", "Public"), true);
+  assert.equal(firewallCovers("Private", "Public"), false);
+  assert.equal(firewallCovers("Private, Public", "Public"), true);
+  assert.equal(firewallCovers("Private", "Private;Public"), false);
+  assert.equal(firewallCovers("Domain", "DomainAuthenticated"), true);
+  assert.equal(firewallCovers(null, "Public"), null);
+  assert.equal(firewallCovers("Private", null), null);
+});
+
+test("formatDiagnostics 防火墙不覆盖当前网络时给出修法", () => {
+  const text = formatDiagnostics({
+    version: "0.1.3",
+    firewallRulePresent: true,
+    firewallCoversNetwork: false,
+    firewallProfiles: "Private",
+    networkCategories: "Public",
+  });
+  assert.match(text, /防火墙规则是否覆盖当前网络：否（规则放行：Private；当前网络：Public——把规则的"公用"也勾上/);
+});
+
+test("formatDiagnostics 游戏端口连接三态", () => {
+  const withConnections = formatDiagnostics({
+    version: "0.1.3",
+    proxyConnected: false,
+    gamePortConnections: ["Established -> 203.0.113.5"],
+  });
+  assert.match(withConnections, /游戏端口\(12090\)的 TCP 连接：1 条（Established -> 203\.0\.113\.5）——有连接但未经过本工具/);
+  const noConnections = formatDiagnostics({ version: "0.1.3", redirectorAlive: true, gamePortConnections: [] });
+  assert.match(noConnections, /游戏端口\(12090\)的 TCP 连接：无——游戏还没有建立连接/);
+  const unknown = formatDiagnostics({ version: "0.1.3", gamePortConnections: null });
+  assert.match(unknown, /游戏端口\(12090\)的 TCP 连接：未知/);
+});
+
 test("collectDiagnostics 解析防火墙、HVCI 与系统代理的 PowerShell 输出", async () => {
   const calls = [];
   const runPowerShell = async (script) => {
     calls.push(script);
-    if (script.includes("Get-NetFirewallRule")) return "yes\r\n";
+    if (script.includes("Get-NetFirewallRule")) return "Private, Public|Private\r\n";
     if (script.includes("HypervisorEnforcedCodeIntegrity")) return "1\r\n";
     if (script.includes("Internet Settings")) return "1|127.0.0.1:7897\r\n";
+    if (script.includes("Get-NetTCPConnection")) return "Established -> 203.0.113.5\r\n";
     return "";
   };
   const text = await collectDiagnostics({
@@ -66,10 +101,30 @@ test("collectDiagnostics 解析防火墙、HVCI 与系统代理的 PowerShell �
     runPowerShell,
     collectedAt: "2026-08-21T12:30:00.000Z",
   });
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.match(text, /防火墙放行规则是否存在：是/);
+  assert.match(text, /防火墙规则是否覆盖当前网络：是（当前网络：Private）/);
   assert.match(text, /内存完整性\(HVCI\)是否开启：是/);
   assert.match(text, /系统代理是否开启：是（127\.0\.0\.1:7897——说明有代理\/加速器类软件在运行/);
+  assert.match(text, /游戏端口\(12090\)的 TCP 连接：1 条/);
+});
+
+test("collectDiagnostics 防火墙规则缺失时报否且覆盖未知", async () => {
+  const runPowerShell = async (script) => {
+    if (script.includes("Get-NetFirewallRule")) return "|Public\r\n";
+    return "";
+  };
+  const text = await collectDiagnostics({
+    version: "0.1.3",
+    interfaces: {},
+    selectAddress: () => "192.168.1.5",
+    redirectorAlive: true,
+    proxyConnected: false,
+    runPowerShell,
+    collectedAt: "2026-08-21T12:30:00.000Z",
+  });
+  assert.match(text, /防火墙放行规则是否存在：否/);
+  assert.match(text, /防火墙规则是否覆盖当前网络：未知（当前网络：Public）/);
 });
 
 test("collectDiagnostics 系统代理关闭时报否", async () => {
@@ -113,6 +168,8 @@ test("collectDiagnostics 无 runPowerShell 时防火墙/HVCI 保持未知", asyn
     collectedAt: "2026-08-21T12:30:00.000Z",
   });
   assert.match(text, /防火墙放行规则是否存在：未知/);
+  assert.match(text, /防火墙规则是否覆盖当前网络：未知/);
   assert.match(text, /内存完整性\(HVCI\)是否开启：未知/);
   assert.match(text, /系统代理是否开启：未知/);
+  assert.match(text, /游戏端口\(12090\)的 TCP 连接：未知/);
 });
