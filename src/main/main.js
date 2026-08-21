@@ -13,7 +13,8 @@ const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./
 const { loadStore, mergeCapture, toCsv } = require("./store");
 const { enrichStore } = require("./catalog");
 const { checkForUpdate, downloadUpdate } = require("./updater");
-const { collectDiagnostics } = require("./diagnostics");
+const { collectDiagnostics, collectDiagnosticsData, preflightWarnings } = require("./diagnostics");
+const { decideWhatsNew, notesFor } = require("./changelog");
 
 // 启动接管的等待上限：超过它就判定为“授权弹窗没点/被拦截”，给用户明确报错，
 // 而不是让按钮永远停在“正在启动”。
@@ -125,16 +126,17 @@ ipcMain.handle("proxy:start", async () => {
   return { started: true, connected: proxy.connected() };
 });
 
-ipcMain.handle("diagnostics:collect", async () => {
-  const runPowerShell = async (script) => {
-    const { stdout } = await execFileAsync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", script],
-      { windowsHide: true, timeout: 8000 },
-    );
-    return stdout;
-  };
-  return collectDiagnostics({
+async function runDiagnosticsPowerShell(script) {
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { windowsHide: true, timeout: 8000 },
+  );
+  return stdout;
+}
+
+function diagnosticsInputs() {
+  return {
     version: RUNTIME_VERSION,
     osVersion: os.version(),
     osRelease: os.release(),
@@ -142,9 +144,16 @@ ipcMain.handle("diagnostics:collect", async () => {
     selectAddress: selectProxyAddress,
     redirectorAlive: redirectorAlive(),
     proxyConnected: proxy.connected(),
-    runPowerShell: process.platform === "win32" ? runPowerShell : null,
+    runPowerShell: process.platform === "win32" ? runDiagnosticsPowerShell : null,
     collectedAt: new Date().toISOString(),
-  });
+  };
+}
+
+ipcMain.handle("diagnostics:collect", async () => collectDiagnostics(diagnosticsInputs()));
+
+ipcMain.handle("preflight:check", async () => {
+  const data = await collectDiagnosticsData(diagnosticsInputs());
+  return { warnings: preflightWarnings(data) };
 });
 
 function disclaimerPath() {
@@ -166,6 +175,40 @@ ipcMain.handle("disclaimer:accept", async () => {
     `${JSON.stringify({ accepted: true, acceptedAt: new Date().toISOString(), version: RUNTIME_VERSION })}\n`,
     "utf8",
   );
+  return true;
+});
+
+function whatsnewPath() {
+  return path.join(app.getPath("userData"), "whatsnew.json");
+}
+
+async function readJsonQuiet(filePath) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function recordWhatsnewVersion() {
+  await fs.writeFile(
+    whatsnewPath(),
+    `${JSON.stringify({ version: RUNTIME_VERSION, seenAt: new Date().toISOString() })}\n`,
+    "utf8",
+  );
+}
+
+ipcMain.handle("whatsnew:get", async () => {
+  const prevVersion = (await readJsonQuiet(whatsnewPath()))?.version ?? null;
+  const disclaimerAccepted = Boolean((await readJsonQuiet(disclaimerPath()))?.accepted);
+  const decision = decideWhatsNew({ prevVersion, disclaimerAccepted, currentVersion: RUNTIME_VERSION });
+  if (decision === "record") await recordWhatsnewVersion();
+  if (decision !== "show") return { show: false };
+  return { show: true, version: RUNTIME_VERSION, notes: notesFor(RUNTIME_VERSION) };
+});
+
+ipcMain.handle("whatsnew:ack", async () => {
+  await recordWhatsnewVersion();
   return true;
 });
 

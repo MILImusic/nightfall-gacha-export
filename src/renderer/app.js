@@ -281,6 +281,8 @@ captureButton.addEventListener("click", async () => {
       status.textContent = "请在 UAC 窗口中允许管理员权限…";
       await window.nightfall.startProxy();
       status.textContent = "接管已启动。请现在启动或重新登录游戏；连接成功后按钮会自动变成“获取全部记录”。";
+      proxyStartedAt = Date.now();
+      void runPreflight();
       return;
     }
     captureButton.textContent = "正在获取";
@@ -352,6 +354,34 @@ async function gateOnDisclaimer() {
 
 void gateOnDisclaimer();
 
+const whatsnewOverlay = document.querySelector("#whatsnewOverlay");
+document.querySelector("#whatsnewAck").addEventListener("click", async () => {
+  try {
+    await window.nightfall.ackWhatsNew();
+  } catch {}
+  whatsnewOverlay.hidden = true;
+});
+
+async function showWhatsNewOnLaunch() {
+  try {
+    const result = await window.nightfall.getWhatsNew();
+    if (!result.show) return;
+    document.querySelector("#whatsnewTitle").textContent = `v${result.version} 更新内容`;
+    document.querySelector("#whatsnewList").replaceChildren(
+      ...result.notes.map((note) => {
+        const item = document.createElement("li");
+        item.textContent = note;
+        return item;
+      }),
+    );
+    whatsnewOverlay.hidden = false;
+  } catch {
+    // 更新说明弹不出来不影响使用。
+  }
+}
+
+void showWhatsNewOnLaunch();
+
 updateButton.addEventListener("click", async () => {
   updateButton.disabled = true;
   try {
@@ -381,6 +411,39 @@ async function detectUpdateOnLaunch() {
 
 void detectUpdateOnLaunch();
 
+// 启动前体检：把已知会导致"接管不上"的环境问题挂成黄条；应用打开与接管启动后各查一次。
+const preflightBox = document.querySelector("#preflightWarnings");
+let preflightItems = [];
+let proxyStartedAt = null;
+let waitingHintOn = false;
+
+function renderPreflight() {
+  const items = waitingHintOn
+    ? [...preflightItems, "接管已开启，但游戏的连接还没有进来：请现在重新登录游戏（已登录的需要完全退出再重开）。"]
+    : preflightItems;
+  preflightBox.replaceChildren(
+    ...items.map((text) => {
+      const item = document.createElement("div");
+      item.className = "preflight-warning";
+      item.textContent = text;
+      return item;
+    }),
+  );
+  preflightBox.hidden = items.length === 0;
+}
+
+async function runPreflight() {
+  try {
+    const result = await window.nightfall.preflightCheck();
+    preflightItems = result.warnings ?? [];
+  } catch {
+    preflightItems = [];
+  }
+  renderPreflight();
+}
+
+void runPreflight();
+
 window.nightfall.getData().then(render).catch((error) => { status.textContent = error.message; });
 setInterval(async () => {
   try {
@@ -391,5 +454,13 @@ setInterval(async () => {
       captureTitle.textContent = proxyConnected ? "连接已接管" : "准备接管";
       if (proxyConnected) status.textContent = "已接管游戏的当前连接。进入契约记录后即可获取全部记录。";
     }
+    const shouldHint = Boolean(
+      next.started && !next.connected && proxyStartedAt && Date.now() - proxyStartedAt > 30000,
+    );
+    if (shouldHint !== waitingHintOn) {
+      waitingHintOn = shouldHint;
+      renderPreflight();
+    }
+    if (next.connected) proxyStartedAt = null;
   } catch {}
 }, 1000);

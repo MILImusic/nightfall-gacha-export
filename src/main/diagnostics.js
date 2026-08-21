@@ -67,8 +67,37 @@ function listIpv4(interfaces) {
   return result;
 }
 
+// 启动前体检：把会导致"接管不上"的已知环境问题翻成人话，给界面挂黄条用。
+// 顺序即严重程度：HVCI 直接拦驱动 > 防火墙不覆盖 > 系统代理抢流量 > 规则还没建。
+function preflightWarnings(data) {
+  const warnings = [];
+  if (data.memoryIntegrityOn) {
+    warnings.push(
+      "系统「内存完整性(HVCI)」开启中，会拦截接管驱动：到「Windows 安全中心 → 设备安全性 → 内核隔离」关闭它，重启电脑后再试。",
+    );
+  }
+  if (data.firewallCoversNetwork === false) {
+    warnings.push(
+      `防火墙放行规则没有覆盖当前网络（规则放行：${data.firewallProfiles}；当前网络：${data.networkCategories}）：` +
+        "到「控制面板 → Windows Defender 防火墙 → 允许应用」把本工具的“公用”一列也勾上，或把当前网络改成“专用”。",
+    );
+  }
+  if (data.systemProxyOn) {
+    warnings.push(
+      `检测到系统代理已开启（${data.systemProxyServer || "地址未知"}），代理/加速器可能抢走游戏流量：请彻底退出代理与加速器（含右下角托盘图标）后再启动接管。`,
+    );
+  }
+  if (data.firewallRulePresent === false) {
+    warnings.push(
+      "还没有本工具的防火墙放行规则：启动接管后若弹出 Windows 防火墙询问窗口，请把“专用网络”和“公用网络”两项都勾上再点“允许访问”。",
+    );
+  }
+  return warnings;
+}
+
 // runPowerShell(command): Promise<string> —— 由调用方注入，测试时可替身。
-async function collectDiagnostics({
+// 返回结构化数据；collectDiagnostics 在其上套一层文本格式化。
+async function collectDiagnosticsData({
   version,
   osVersion,
   osRelease,
@@ -144,7 +173,7 @@ async function collectDiagnostics({
     }
   }
 
-  return formatDiagnostics({
+  return {
     version,
     osVersion,
     osRelease,
@@ -162,7 +191,20 @@ async function collectDiagnostics({
     gamePortConnections,
     notes,
     collectedAt,
-  });
+  };
 }
 
-module.exports = { FIREWALL_RULE_NAME, GAME_PORT, collectDiagnostics, firewallCovers, formatDiagnostics, listIpv4 };
+async function collectDiagnostics(inputs) {
+  return formatDiagnostics(await collectDiagnosticsData(inputs));
+}
+
+module.exports = {
+  FIREWALL_RULE_NAME,
+  GAME_PORT,
+  collectDiagnostics,
+  collectDiagnosticsData,
+  firewallCovers,
+  formatDiagnostics,
+  listIpv4,
+  preflightWarnings,
+};

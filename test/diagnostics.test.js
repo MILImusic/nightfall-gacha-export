@@ -1,6 +1,61 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { collectDiagnostics, firewallCovers, formatDiagnostics, listIpv4 } = require("../src/main/diagnostics");
+const {
+  collectDiagnostics,
+  collectDiagnosticsData,
+  firewallCovers,
+  formatDiagnostics,
+  listIpv4,
+  preflightWarnings,
+} = require("../src/main/diagnostics");
+
+test("preflightWarnings 按严重程度列出命中的环境问题", () => {
+  const warnings = preflightWarnings({
+    memoryIntegrityOn: true,
+    firewallCoversNetwork: false,
+    firewallProfiles: "Private",
+    networkCategories: "Public",
+    systemProxyOn: true,
+    systemProxyServer: "127.0.0.1:7897",
+    firewallRulePresent: true,
+  });
+  assert.equal(warnings.length, 3);
+  assert.match(warnings[0], /内存完整性\(HVCI\)/);
+  assert.match(warnings[1], /规则放行：Private；当前网络：Public/);
+  assert.match(warnings[2], /127\.0\.0\.1:7897/);
+});
+
+test("preflightWarnings 规则缺失给首弹勾选引导，环境干净时为空", () => {
+  const missing = preflightWarnings({ firewallRulePresent: false });
+  assert.equal(missing.length, 1);
+  assert.match(missing[0], /“专用网络”和“公用网络”两项都勾上/);
+  assert.deepEqual(
+    preflightWarnings({
+      memoryIntegrityOn: false,
+      firewallCoversNetwork: true,
+      systemProxyOn: false,
+      firewallRulePresent: true,
+    }),
+    [],
+  );
+  // 全未知（如查询失败）不误报
+  assert.deepEqual(preflightWarnings({}), []);
+});
+
+test("collectDiagnosticsData 返回结构化数据供体检复用", async () => {
+  const data = await collectDiagnosticsData({
+    version: "0.1.3",
+    interfaces: {},
+    selectAddress: () => "192.168.1.5",
+    redirectorAlive: true,
+    proxyConnected: false,
+    runPowerShell: async (script) => (script.includes("Internet Settings") ? "1|127.0.0.1:7897" : ""),
+    collectedAt: "2026-08-21T12:30:00.000Z",
+  });
+  assert.equal(data.systemProxyOn, true);
+  assert.equal(data.systemProxyServer, "127.0.0.1:7897");
+  assert.equal(preflightWarnings(data).length >= 1, true);
+});
 
 test("listIpv4 只取非内部 IPv4", () => {
   const result = listIpv4({

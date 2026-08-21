@@ -40,6 +40,7 @@
         </section>
       </header>
 
+      <div id="preflightWarnings" class="preflight-warnings" hidden></div>
       <p id="status" role="status"></p>
 
       <section class="summary">
@@ -86,6 +87,15 @@
         </div>
       </section>
     </main>
+    <div id="whatsnewOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card">
+        <h2 id="whatsnewTitle">更新内容</h2>
+        <div class="disclaimer-body">
+          <ul id="whatsnewList"></ul>
+        </div>
+        <button id="whatsnewAck" class="primary" type="button">知道了</button>
+      </div>
+    </div>
     <div id="disclaimerOverlay" class="disclaimer-overlay" hidden>
       <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
         <h2 id="disclaimerTitle">使用前请知悉</h2>
