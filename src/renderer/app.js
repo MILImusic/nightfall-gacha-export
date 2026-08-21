@@ -316,6 +316,42 @@ window.nightfall.onProgress((payload) => {
 document.querySelector("#exportJson").addEventListener("click", () => window.nightfall.exportJson());
 document.querySelector("#exportCsv").addEventListener("click", () => window.nightfall.exportCsv());
 
+const diagnosticsButton = document.querySelector("#diagnosticsButton");
+diagnosticsButton.addEventListener("click", async () => {
+  diagnosticsButton.disabled = true;
+  const original = diagnosticsButton.textContent;
+  try {
+    const text = await window.nightfall.collectDiagnostics();
+    await navigator.clipboard.writeText(text);
+    diagnosticsButton.textContent = "已复制";
+    status.textContent = "诊断信息已复制到剪贴板，直接粘贴给作者即可。";
+  } catch (error) {
+    status.textContent = `收集诊断信息失败：${error.message}`;
+  } finally {
+    setTimeout(() => { diagnosticsButton.textContent = original; }, 1500);
+    diagnosticsButton.disabled = false;
+  }
+});
+
+const disclaimerOverlay = document.querySelector("#disclaimerOverlay");
+document.querySelector("#disclaimerAccept").addEventListener("click", async () => {
+  try {
+    await window.nightfall.acceptDisclaimer();
+  } catch {}
+  disclaimerOverlay.hidden = true;
+});
+
+async function gateOnDisclaimer() {
+  try {
+    const accepted = await window.nightfall.getDisclaimerAccepted();
+    disclaimerOverlay.hidden = Boolean(accepted);
+  } catch {
+    disclaimerOverlay.hidden = true;
+  }
+}
+
+void gateOnDisclaimer();
+
 updateButton.addEventListener("click", async () => {
   updateButton.disabled = true;
   try {

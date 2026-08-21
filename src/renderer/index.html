@@ -16,6 +16,7 @@
         <div class="actions">
           <button id="themeToggle" class="ghost" type="button">夜间</button>
           <button id="updateButton" class="ghost" type="button" hidden>更新版本</button>
+          <button id="diagnosticsButton" class="ghost" type="button" title="收集网络/防火墙/驱动状态，一键复制给作者排障">复制诊断信息</button>
           <button id="exportJson" class="ghost" type="button">导出 JSON</button>
           <button id="exportCsv" class="ghost" type="button">导出 CSV</button>
         </div>
@@ -85,6 +86,22 @@
         </div>
       </section>
     </main>
+    <div id="disclaimerOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="disclaimerTitle">
+        <h2 id="disclaimerTitle">使用前请知悉</h2>
+        <div class="disclaimer-body">
+          <p>本工具通过接管《夜幕之下》客户端与服务器之间的本机连接来读取你自己的抽卡记录，<strong>仅在本机读取、不修改游戏数据、不上传、不触碰账号密码</strong>。</p>
+          <p>但请注意以下风险，自愿使用：</p>
+          <ul>
+            <li>游戏厂商的用户协议通常限制第三方工具介入客户端通信。虽然本工具只读取记录、不改动任何数据，理论上仍可能被判定为违规，由此产生的账号风险由使用者自行承担。</li>
+            <li>本工具仅供学习交流与个人备份用途，与游戏官方无关，作者不对使用后果（含封号、数据丢失等）负责。</li>
+            <li>需要管理员权限以接管本机网络连接；请从可信来源获取本程序。</li>
+          </ul>
+          <p>点击“我已阅读并同意”即表示你理解并接受上述风险。</p>
+        </div>
+        <button id="disclaimerAccept" class="primary" type="button">我已阅读并同意</button>
+      </div>
+    </div>
     <script src="app.js"></script>
     <script src="theme.js"></script>
   </body>

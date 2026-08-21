@@ -160,3 +160,14 @@ tbody tr:hover { background: var(--row-hover); }
   .pool-filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
   .pool-filter { flex: 0 0 auto; }
 }
+
+.disclaimer-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .5); backdrop-filter: blur(4px); }
+.disclaimer-overlay[hidden] { display: none; }
+.disclaimer-card { max-width: 560px; width: 100%; max-height: 86vh; overflow-y: auto; padding: 32px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 24px 64px rgba(0, 0, 0, .35); }
+.disclaimer-card h2 { margin: 0 0 18px; font-size: 20px; font-weight: 500; color: var(--fg); }
+.disclaimer-body { font-size: 14px; line-height: 1.7; color: var(--muted); }
+.disclaimer-body p { margin: 0 0 14px; }
+.disclaimer-body ul { margin: 0 0 14px; padding-left: 20px; }
+.disclaimer-body li { margin-bottom: 10px; }
+.disclaimer-body strong { color: var(--fg); font-weight: 500; }
+.disclaimer-card .primary { margin-top: 8px; width: 100%; }
