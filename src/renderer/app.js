@@ -292,7 +292,10 @@ captureButton.addEventListener("click", async () => {
     if (!proxyConnected) {
       captureButton.textContent = "正在启动";
       captureTitle.textContent = "正在启动连接接管";
-      status.textContent = "请在 UAC 窗口中允许管理员权限…";
+      // 已经以管理员身份运行时不会弹授权窗口，别让用户干等一个不会出现的弹窗。
+      status.textContent = toolElevated
+        ? "正在启动接管（已是管理员身份，无需授权弹窗）…"
+        : "请在弹出的管理员授权窗口中点“是”；若没看到，按 Alt+Tab 找一下，它可能被其他窗口挡住。";
       // 看门狗：主进程那条提权调用有可能卡在等待 UAC 而永不返回（用户改过 UAC 策略时尤其如此），
       // 底层超时未必杀得掉那个等待中的进程。这一层完全在界面里，保证按钮不会永远停在"正在启动"。
       await Promise.race([window.nightfall.startProxy(), startProxyWatchdog()]);
@@ -491,6 +494,7 @@ void detectUpdateOnLaunch();
 // 启动前体检：把已知会导致"接管不上"的环境问题挂成黄条；应用打开与接管启动后各查一次。
 const preflightBox = document.querySelector("#preflightWarnings");
 let preflightItems = [];
+let toolElevated = null;
 let proxyStartedAt = null;
 let waitingHintOn = false;
 
@@ -513,6 +517,7 @@ async function runPreflight() {
   try {
     const result = await window.nightfall.preflightCheck();
     preflightItems = result.warnings ?? [];
+    if (typeof result.elevated === "boolean") toolElevated = result.elevated;
   } catch {
     preflightItems = [];
   }

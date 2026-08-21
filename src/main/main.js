@@ -225,8 +225,9 @@ ipcMain.handle("diagnostics:collect", async () =>
   collectDiagnostics({ ...diagnosticsInputs(), elevated: await isElevated() }));
 
 ipcMain.handle("preflight:check", async () => {
-  const data = await collectDiagnosticsData({ ...diagnosticsInputs(), elevated: await isElevated() });
-  return { warnings: preflightWarnings(data) };
+  const elevated = await isElevated();
+  const data = await collectDiagnosticsData({ ...diagnosticsInputs(), elevated });
+  return { warnings: preflightWarnings(data), elevated };
 });
 
 // 一键修复网络残留：只做无需提权、不会误伤用户主动配置的两件事。
