@@ -389,3 +389,27 @@ test("formatDiagnostics 说明防火墙关闭时规则缺失不影响使用", ()
   assert.match(text, /当前网络的防火墙是否开启：否（已关闭，无需放行规则）/);
   assert.match(text, /防火墙放行规则是否存在：否（防火墙已关闭，不影响使用）/);
 });
+
+test("formatDiagnostics 展示系统 UAC 状态（关闭时点明其影响）", () => {
+  assert.match(
+    formatDiagnostics({ version: "0.1.9", uacEnabled: false }),
+    /系统 UAC 是否开启：否（已关闭：程序默认即拥有管理员权限/,
+  );
+  assert.match(formatDiagnostics({ version: "0.1.9", uacEnabled: true }), /系统 UAC 是否开启：是/);
+  assert.match(formatDiagnostics({ version: "0.1.9" }), /系统 UAC 是否开启：未知/);
+});
+
+test("collectDiagnosticsData 一次查询同时取回 HVCI 与 UAC", async () => {
+  const data = await collectDiagnosticsData({
+    version: "0.1.9",
+    interfaces: {},
+    selectAddress: () => "192.168.1.5",
+    redirectorAlive: true,
+    proxyConnected: false,
+    runPowerShell: async (script) =>
+      script.includes("HypervisorEnforcedCodeIntegrity") ? "0|0\r\n" : "",
+    collectedAt: "2026-08-21T12:30:00.000Z",
+  });
+  assert.equal(data.memoryIntegrityOn, false);
+  assert.equal(data.uacEnabled, false);
+});

@@ -116,6 +116,7 @@ function formatDiagnostics(data) {
           ? data.gameConnections.join("；")
           : "（没有找到游戏进程——游戏还没启动）"
     }`,
+    `系统 UAC 是否开启：${yesNo(data.uacEnabled)}${data.uacEnabled === false ? "（已关闭：程序默认即拥有管理员权限，旧版本在此环境下请求提权可能卡住）" : ""}`,
     `本工具是否以管理员身份运行：${yesNo(data.elevated)}${data.elevated === false ? "（未提权，启动接管时需要通过 UAC 授权弹窗）" : ""}`,
     `本工具接管的端口：${data.activeGamePort ?? GAME_PORT}${data.activeGamePort && data.activeGamePort !== GAME_PORT ? "（已自动适配，非默认值）" : ""}`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
@@ -230,6 +231,7 @@ async function collectDiagnosticsData({
   let networkCategories = null;
   let firewallEnabled = null;
   let memoryIntegrityOn = null;
+  let uacEnabled = null;
   let systemProxyOn = null;
   let systemProxyServer = null;
   let gamePortConnections = null;
@@ -254,11 +256,16 @@ async function collectDiagnosticsData({
     }
     try {
       const out = await runPowerShell(
-        "(Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity' -Name Enabled -ErrorAction SilentlyContinue).Enabled",
+        "$h = (Get-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\Scenarios\\HypervisorEnforcedCodeIntegrity' -Name Enabled -ErrorAction SilentlyContinue).Enabled; " +
+          "$u = (Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name EnableLUA -ErrorAction SilentlyContinue).EnableLUA; " +
+          '"$h|$u"',
       );
-      const value = out.trim();
-      if (value === "1") memoryIntegrityOn = true;
-      else if (value === "0" || value === "") memoryIntegrityOn = false;
+      const [hvciValue = "", uacValue = ""] = out.trim().split("|");
+      if (hvciValue.trim() === "1") memoryIntegrityOn = true;
+      else if (hvciValue.trim() === "0" || hvciValue.trim() === "") memoryIntegrityOn = false;
+      const uac = uacValue.trim();
+      if (uac === "1") uacEnabled = true;
+      else if (uac === "0") uacEnabled = false;
     } catch (error) {
       notes.push(`查询内存完整性失败：${error.message}`);
     }
@@ -329,6 +336,7 @@ async function collectDiagnosticsData({
     firewallEnabled,
     firewallCoversNetwork: firewallCovers(firewallProfiles, networkCategories),
     memoryIntegrityOn,
+    uacEnabled,
     systemProxyOn,
     systemProxyServer,
     gamePortConnections,
