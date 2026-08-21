@@ -97,7 +97,7 @@ async function collectDiagnostics({
   if (typeof runPowerShell === "function") {
     try {
       const out = await runPowerShell(
-        `$r = Get-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue; ` +
+        `$r = Get-NetFirewallRule -DisplayName '${FIREWALL_RULE_NAME}' -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Allow' }; ` +
           "$p = ($r | ForEach-Object { \"$($_.Profile)\" }) -join ';'; " +
           "$c = (Get-NetConnectionProfile -ErrorAction SilentlyContinue | ForEach-Object { \"$($_.NetworkCategory)\" }) -join ';'; " +
           '"$p|$c"',

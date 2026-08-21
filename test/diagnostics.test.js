@@ -46,6 +46,13 @@ test("formatDiagnostics 没选出地址时给出说明", () => {
   assert.match(text, /本机 IPv4 网卡：\n {2}（无）/);
 });
 
+test("firewallCovers 兼容真机形态：弹窗生成的多条单 Profile 规则 + 多网卡多类别", () => {
+  // 2026-08-21 shin-win 实测输出：规则四条（TCP/UDP × 专用/公用），网卡四个类别其一为 Public
+  assert.equal(firewallCovers("Private;Private;Public;Public", "Private;Private;Public;Private"), true);
+  // 弹窗只勾了"家用/专用"而当前有网卡被判公用（广东用户案）
+  assert.equal(firewallCovers("Private;Private", "Private;Public"), false);
+});
+
 test("firewallCovers 判定规则 Profile 与当前网络类别", () => {
   assert.equal(firewallCovers("Any", "Public"), true);
   assert.equal(firewallCovers("Private", "Public"), false);
