@@ -304,14 +304,7 @@ captureButton.addEventListener("click", async () => {
       void runPreflight();
       return;
     }
-    captureButton.textContent = "正在获取";
-    captureTitle.textContent = "正在读取契约记录";
-    status.textContent = "正在通过游戏当前连接读取…";
-    const result = await window.nightfall.fetchHistory();
-    render(result.store);
-    status.textContent = result.incremental
-      ? `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`
-      : `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
+    await runFetch();
   } catch (error) {
     const reason = humanizeError(error);
     if (!proxyConnected) showFailure("接管没能启动", reason, "");
@@ -373,6 +366,226 @@ netfixButton.addEventListener("click", async () => {
   }
 });
 
+
+// ── 账号档案 ────────────────────────────────────────────────
+// 协议里没有账号标识，档案靠用户自己切；但读取时会用记录指纹核对，
+// 对不上就弹窗拦住，避免两个号的记录混进同一份档案。
+const profileSelect = document.querySelector("#profileSelect");
+const conflictOverlay = document.querySelector("#profileConflictOverlay");
+let profileState = { activeId: null, profiles: [] };
+
+function renderProfiles() {
+  profileSelect.replaceChildren(
+    ...profileState.profiles.map((item) => {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.recordCount ? `${item.name}（${item.recordCount}）` : item.name;
+      option.selected = item.id === profileState.activeId;
+      return option;
+    }),
+  );
+}
+
+async function refreshProfiles() {
+  try {
+    profileState = await window.nightfall.listProfiles();
+    renderProfiles();
+  } catch (error) {
+    // 不挡主流程，但必须留痕：静默失败会让下拉框空着而没人知道原因
+    console.error("[profiles] 读取档案列表失败：", error);
+    status.textContent = `账号列表加载失败：${humanizeError(error)}`;
+  }
+}
+
+profileSelect.addEventListener("change", async () => {
+  try {
+    profileState = await window.nightfall.switchProfile(profileSelect.value);
+    renderProfiles();
+    render(await window.nightfall.getData());
+    status.textContent = `已切换到「${profileState.profiles.find((p) => p.id === profileState.activeId)?.name ?? ""}」。`;
+  } catch (error) {
+    showFailure("切换账号失败", humanizeError(error), "");
+  }
+});
+
+// Electron 的渲染进程不实现 window.prompt（打包后调用直接返回 null），
+// 所以新建/重命名/删除一律走自己的弹窗。
+const profileEditOverlay = document.querySelector("#profileEditOverlay");
+const profileNameInput = document.querySelector("#profileNameInput");
+const profileDeleteOverlay = document.querySelector("#profileDeleteOverlay");
+const profileDeleteInput = document.querySelector("#profileDeleteConfirmInput");
+let editMode = null; // "create" | "edit"
+
+function openProfileEdit(mode) {
+  editMode = mode;
+  const current = profileState.profiles.find((item) => item.id === profileState.activeId);
+  const isCreate = mode === "create";
+  document.querySelector("#profileEditTitle").textContent = isCreate ? "新建账号档案" : "账号档案";
+  document.querySelector("#profileEditHint").textContent = isCreate
+    ? "给新账号起个名字，方便自己分辨（例如：大号、小号、代练）。留空会自动命名。"
+    : "改名后立刻生效。删除需要再确认一次。";
+  profileNameInput.value = isCreate ? "" : (current?.name ?? "");
+  document.querySelector("#profileEditStats").textContent = isCreate || !current
+    ? ""
+    : `当前有 ${current.recordCount} 条记录${current.lastCapturedAt ? `，最近读取 ${new Date(current.lastCapturedAt).toLocaleString()}` : ""}`;
+  const onlyOne = profileState.profiles.length <= 1;
+  const deleteButton = document.querySelector("#profileEditDelete");
+  deleteButton.hidden = isCreate;
+  deleteButton.textContent = onlyOne ? "清空这个账号的记录…" : "删除这个账号档案…";
+  profileEditOverlay.hidden = false;
+  profileNameInput.focus();
+}
+
+// 顶栏下拉菜单（账号管理、导出共用一套开合逻辑）
+const openMenus = [];
+function setupMenu(buttonSelector, menuSelector, onOpen) {
+  const button = document.querySelector(buttonSelector);
+  const menu = document.querySelector(menuSelector);
+  const close = () => { menu.hidden = true; button.setAttribute("aria-expanded", "false"); };
+  openMenus.push(close);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const opening = menu.hidden;
+    for (const other of openMenus) other(); // 同时只开一个
+    if (opening) {
+      onOpen?.();
+      menu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+    }
+  });
+  menu.addEventListener("click", () => close());
+  return close;
+}
+document.addEventListener("click", () => { for (const close of openMenus) close(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") for (const close of openMenus) close();
+});
+
+// 「管理」下拉：新建 / 重命名 / 删除都收在这里，顶栏只留一个入口
+const profileMenu = document.querySelector("#profileMenu");
+setupMenu("#profileManage", "#profileMenu", () => {
+  // 删除项的措辞取决于是不是唯一的档案：唯一时不能真删，只能清空
+  document.querySelector("#profileMenuDelete").textContent =
+    profileState.profiles.length <= 1 ? "清空当前账号的记录" : "删除当前账号";
+});
+setupMenu("#exportMenuButton", "#exportMenu");
+
+profileMenu.addEventListener("click", (event) => {
+  const action = event.target.closest("button")?.dataset.action;
+  if (!action) return;
+  if (action === "create") openProfileEdit("create");
+  else if (action === "rename") openProfileEdit("edit");
+  else if (action === "delete") openProfileDelete();
+});
+document.querySelector("#profileEditCancel").addEventListener("click", () => { profileEditOverlay.hidden = true; });
+
+document.querySelector("#profileEditSave").addEventListener("click", async () => {
+  const name = profileNameInput.value;
+  profileEditOverlay.hidden = true;
+  try {
+    profileState = editMode === "create"
+      ? await window.nightfall.createProfile(name)
+      : await window.nightfall.renameProfile(profileState.activeId, name);
+    renderProfiles();
+    render(await window.nightfall.getData());
+    status.textContent = editMode === "create"
+      ? "新账号档案已建好，之后读取的记录会存进这里。"
+      : "账号名已更新。";
+  } catch (error) {
+    showFailure(editMode === "create" ? "新建账号失败" : "改名失败", humanizeError(error), "");
+  }
+});
+
+// 删除：二次弹窗 + 必须打出账号名才能点确认
+function openProfileDelete() {
+  const current = profileState.profiles.find((item) => item.id === profileState.activeId);
+  if (!current) return;
+  profileEditOverlay.hidden = true;
+  const onlyOne = profileState.profiles.length <= 1;
+  document.querySelector("#profileDeleteTitle").textContent = onlyOne ? "确认清空这个账号的记录" : "确认删除账号档案";
+  document.querySelector("#profileDeleteWarn").textContent = onlyOne
+    ? `「${current.name}」是目前唯一的账号档案，里面有 ${current.recordCount} 条抽卡记录。它不会被删掉（列表不能为空），但记录会被清空、名字重置。`
+    : `你正要删除「${current.name}」，它里面有 ${current.recordCount} 条抽卡记录。`;
+  document.querySelector("#profileDeleteConfirm").textContent = onlyOne ? "确认清空" : "确认删除";
+  profileDeleteInput.value = "";
+  document.querySelector("#profileDeleteConfirm").disabled = true;
+  profileDeleteOverlay.hidden = false;
+  profileDeleteInput.focus();
+}
+
+document.querySelector("#profileEditDelete").addEventListener("click", openProfileDelete);
+
+profileDeleteInput.addEventListener("input", () => {
+  const current = profileState.profiles.find((item) => item.id === profileState.activeId);
+  document.querySelector("#profileDeleteConfirm").disabled =
+    profileDeleteInput.value.trim() !== (current?.name ?? "").trim();
+});
+
+document.querySelector("#profileDeleteCancel").addEventListener("click", () => {
+  profileDeleteOverlay.hidden = true;
+  status.textContent = "已取消删除，记录没有改动。";
+});
+
+document.querySelector("#profileDeleteConfirm").addEventListener("click", async () => {
+  const current = profileState.profiles.find((item) => item.id === profileState.activeId);
+  profileDeleteOverlay.hidden = true;
+  if (!current) return;
+  try {
+    profileState = await window.nightfall.deleteProfile(current.id);
+    renderProfiles();
+    render(await window.nightfall.getData());
+    status.textContent = profileState.cleared
+      ? `已清空「${current.name}」的记录（原记录在数据目录里留了一份备份）。`
+      : `已删除「${current.name}」，记录文件在数据目录里保留了一份备份。`;
+  } catch (error) {
+    showFailure("删除失败", humanizeError(error), "");
+  }
+});
+
+// 读取时发现指纹对不上：停下来问，别默默合并
+let pendingConflict = null;
+function showProfileConflict(conflict) {
+  pendingConflict = conflict;
+  const reason = document.querySelector("#conflictReason");
+  const primary = document.querySelector("#conflictPrimary");
+  if (conflict.verdict === "other") {
+    reason.textContent = `这份记录看起来属于「${conflict.otherProfileName}」，而当前选中的是「${conflict.activeProfileName}」。`;
+    primary.textContent = `切换到「${conflict.otherProfileName}」并读取`;
+  } else {
+    reason.textContent = `这份记录和「${conflict.activeProfileName}」里已有的对不上，像是另一个还没建过档案的账号。`;
+    primary.textContent = "新建一个账号档案并读取";
+  }
+  conflictOverlay.hidden = false;
+}
+
+document.querySelector("#conflictCancel").addEventListener("click", () => {
+  conflictOverlay.hidden = true;
+  pendingConflict = null;
+  status.textContent = "已取消，本地记录没有改动。";
+});
+
+document.querySelector("#conflictPrimary").addEventListener("click", async () => {
+  const conflict = pendingConflict;
+  conflictOverlay.hidden = true;
+  pendingConflict = null;
+  if (!conflict) return;
+  try {
+    profileState = conflict.verdict === "other"
+      ? await window.nightfall.switchProfile(conflict.otherProfileId)
+      : await window.nightfall.createProfile("");
+    renderProfiles();
+    await runFetch({ force: true });
+  } catch (error) {
+    showFailure("切换账号失败", humanizeError(error), "");
+  }
+});
+
+document.querySelector("#conflictMerge").addEventListener("click", async () => {
+  conflictOverlay.hidden = true;
+  pendingConflict = null;
+  await runFetch({ force: true });
+});
+
 const disclaimerOverlay = document.querySelector("#disclaimerOverlay");
 document.querySelector("#disclaimerAccept").addEventListener("click", async () => {
   try {
@@ -389,6 +602,36 @@ async function gateOnDisclaimer() {
     disclaimerOverlay.hidden = true;
   }
 }
+
+
+// 读取记录。冲突弹窗确认后会带 force 再调一次。
+async function runFetch(options = {}) {
+  captureButton.disabled = true;
+  captureButton.textContent = "正在获取";
+  captureTitle.textContent = "正在读取契约记录";
+  status.textContent = "正在通过游戏当前连接读取…";
+  try {
+    const result = await window.nightfall.fetchHistory(options);
+    if (result?.conflict) {
+      showProfileConflict(result.conflict);
+      status.textContent = "已暂停：请先确认这份记录属于哪个账号。";
+      return;
+    }
+    render(result.store);
+    await refreshProfiles();
+    status.textContent = result.incremental
+      ? `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`
+      : `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
+  } catch (error) {
+    status.textContent = humanizeError(error);
+  } finally {
+    captureButton.disabled = false;
+    captureButton.textContent = proxyConnected ? "获取全部记录" : "启动连接接管";
+    captureTitle.textContent = proxyConnected ? "连接已接管" : "准备接管";
+  }
+}
+
+void refreshProfiles();
 
 void gateOnDisclaimer();
 

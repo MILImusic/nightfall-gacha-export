@@ -14,12 +14,31 @@
           <span class="wordmark-sub">契约记录导出</span>
         </div>
         <div class="actions">
-          <button id="themeToggle" class="ghost" type="button">夜间</button>
-          <button id="updateButton" class="ghost" type="button" hidden>更新版本</button>
-          <button id="netfixButton" class="ghost" type="button" title="关闭代理/加速器退出后残留的系统代理设置，并清空 DNS 缓存；不改动你自己配置的 DNS">修复网络残留</button>
-          <button id="diagnosticsButton" class="ghost" type="button" title="收集网络/防火墙/驱动状态，一键复制给作者排障">复制诊断信息</button>
-          <button id="exportJson" class="ghost" type="button">导出 JSON</button>
-          <button id="exportCsv" class="ghost" type="button">导出 CSV</button>
+          <div class="actions-row">
+            <button id="themeToggle" class="ghost" type="button">夜间</button>
+            <button id="updateButton" class="ghost" type="button" hidden>更新版本</button>
+            <button id="netfixButton" class="ghost" type="button" title="关闭代理/加速器退出后残留的系统代理设置，并清空 DNS 缓存；不改动你自己配置的 DNS">修复网络残留</button>
+            <button id="diagnosticsButton" class="ghost" type="button" title="收集网络/防火墙/驱动状态，一键复制给作者排障">复制诊断信息</button>
+            <div class="menu-wrap">
+              <button id="exportMenuButton" class="ghost" type="button" aria-haspopup="true" aria-expanded="false">导出<i class="chev" aria-hidden="true"></i></button>
+              <div id="exportMenu" class="menu" role="menu" hidden>
+                <button type="button" role="menuitem" id="exportJson">导出为 JSON</button>
+                <button type="button" role="menuitem" id="exportCsv">导出为 CSV</button>
+              </div>
+            </div>
+          </div>
+          <div class="actions-row profile-picker">
+            <span class="profile-label">账号</span>
+            <span class="select-wrap"><select id="profileSelect" title="切换账号档案"></select></span>
+            <div class="menu-wrap">
+              <button id="profileManage" class="ghost" type="button" aria-haspopup="true" aria-expanded="false">管理<i class="chev" aria-hidden="true"></i></button>
+              <div id="profileMenu" class="menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-action="create">新建账号</button>
+                <button type="button" role="menuitem" data-action="rename">重命名当前账号</button>
+                <button type="button" role="menuitem" data-action="delete" id="profileMenuDelete">删除当前账号</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -88,6 +107,50 @@
         </div>
       </section>
     </main>
+    <div id="profileEditOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="profileEditTitle">
+        <h2 id="profileEditTitle">账号档案</h2>
+        <div class="disclaimer-body">
+          <p id="profileEditHint">给这个账号起个名字，方便自己分辨（例如：大号、小号、代练）。</p>
+          <input id="profileNameInput" type="text" maxlength="20" placeholder="账号名" />
+          <p id="profileEditStats" class="profile-stats"></p>
+        </div>
+        <div class="conflict-actions">
+          <button id="profileEditSave" class="primary" type="button">保存</button>
+          <button id="profileEditDelete" class="ghost danger" type="button" hidden>删除这个账号档案…</button>
+          <button id="profileEditCancel" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
+    <div id="profileDeleteOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="profileDeleteTitle">
+        <h2 id="profileDeleteTitle">确认删除账号档案</h2>
+        <div class="disclaimer-body">
+          <p id="profileDeleteWarn"></p>
+          <p>删除后这个账号的抽卡记录将不再显示。记录文件会在数据目录里保留一份改名备份，但工具内不提供恢复入口。</p>
+          <p><strong>请输入该账号的名字以确认：</strong></p>
+          <input id="profileDeleteConfirmInput" type="text" placeholder="在这里输入账号名" />
+        </div>
+        <div class="conflict-actions">
+          <button id="profileDeleteConfirm" class="primary danger-solid" type="button" disabled>确认删除</button>
+          <button id="profileDeleteCancel" class="ghost" type="button">我再想想</button>
+        </div>
+      </div>
+    </div>
+    <div id="profileConflictOverlay" class="disclaimer-overlay" hidden>
+      <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="conflictTitle">
+        <h2 id="conflictTitle">这好像不是当前账号的记录</h2>
+        <div class="disclaimer-body">
+          <p id="conflictReason"></p>
+          <p>为避免把两个账号的记录混在一起（混了之后很难分开），先停下来问你一句。</p>
+        </div>
+        <div class="conflict-actions">
+          <button id="conflictPrimary" class="primary" type="button"></button>
+          <button id="conflictMerge" class="ghost" type="button">仍然并入当前账号</button>
+          <button id="conflictCancel" class="ghost" type="button">取消</button>
+        </div>
+      </div>
+    </div>
     <div id="failureOverlay" class="disclaimer-overlay" hidden>
       <div class="disclaimer-card" role="dialog" aria-modal="true" aria-labelledby="failureTitle">
         <h2 id="failureTitle">出错了</h2>

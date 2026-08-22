@@ -54,11 +54,12 @@ button { font: inherit; white-space: nowrap; cursor: pointer; transition: .16s e
 button:disabled { cursor: not-allowed; color: var(--faint); }
 
 .topbar { position: sticky; top: 0; z-index: 5; background: var(--bar); backdrop-filter: blur(8px); border-bottom: 1px solid var(--hair); }
-.topbar-inner { max-width: 1160px; margin: 0 auto; padding: 20px 56px; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.topbar-inner { max-width: 1160px; margin: 0 auto; padding: 20px 56px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 32px; }
 .wordmark { display: flex; align-items: baseline; gap: 14px; }
 .wordmark-name { font-size: 12px; font-weight: 600; letter-spacing: .18em; }
 .wordmark-sub { font-size: 12px; color: var(--faint); }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.actions-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 .ghost { font-size: 13px; padding: 8px 14px; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 6px; }
 .ghost[hidden] { display: none; }
@@ -175,3 +176,37 @@ tbody tr:hover { background: var(--row-hover); }
 .preflight-warnings { display: flex; flex-direction: column; gap: 12px; margin: 18px 0 0; }
 .preflight-warnings[hidden] { display: none; }
 .preflight-warning { padding: 1px 0 1px 14px; border-left: 2px solid var(--accent); font-size: 13px; line-height: 1.7; color: var(--fg); }
+
+.profile-picker { align-items: center; }
+.profile-label { font-size: 12px; letter-spacing: .08em; color: var(--faint); }
+.profile-picker select { min-width: 132px; max-width: 190px; padding: 8px 12px; font: inherit; font-size: 13px; line-height: 1.15; color: var(--fg); background: transparent; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.profile-picker select:focus { outline: none; border-color: var(--accent); }
+
+.conflict-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.conflict-actions .primary, .conflict-actions .ghost { width: 100%; }
+.disclaimer-card input[type="text"] { width: 100%; margin: 10px 0 4px; padding: 10px 12px; font: inherit; font-size: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.disclaimer-card input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.profile-stats { margin: 6px 0 0; font-size: 12px; color: var(--faint); }
+.ghost.danger { color: var(--six); border-color: color-mix(in oklch, var(--six) 40%, var(--border)); }
+.ghost.danger:hover:not(:disabled) { color: var(--six); background: color-mix(in oklch, var(--six) 10%, transparent); }
+.primary.danger-solid { background: var(--six); color: #fff; }
+
+.menu-wrap { position: relative; display: inline-flex; }
+.menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 168px; padding: 5px; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.14); }
+.menu[hidden] { display: none; }
+.menu button { padding: 9px 12px; font-size: 13px; text-align: left; color: var(--fg); background: transparent; border: 0; border-radius: 6px; }
+.menu button:hover { background: var(--hover); }
+.menu button[data-action="delete"] { color: var(--six); }
+.menu button[data-action="delete"]:hover { background: color-mix(in oklch, var(--six) 10%, transparent); }
+
+/* 下拉箭头统一：select 关掉原生外观，与「管理」按钮用同一套 CSS 画法，保证两处粗细尺寸一致 */
+.chev, .select-wrap::after {
+  width: 6px; height: 6px;
+  border-right: 1.3px solid currentColor;
+  border-bottom: 1.3px solid currentColor;
+  transform: rotate(45deg);
+}
+.chev { display: inline-block; margin: 0 1px 2px 7px; vertical-align: middle; }
+.select-wrap { position: relative; display: inline-flex; }
+.select-wrap::after { content: ""; position: absolute; right: 12px; top: 42%; color: var(--muted); transform: translateY(-50%) rotate(45deg); pointer-events: none; }
+.profile-picker select { appearance: none; -webkit-appearance: none; padding-right: 30px; }

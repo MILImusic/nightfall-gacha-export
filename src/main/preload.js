@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("nightfall", {
-  fetchHistory: () => ipcRenderer.invoke("history:fetch"),
+  fetchHistory: (options) => ipcRenderer.invoke("history:fetch", options),
   startProxy: () => ipcRenderer.invoke("proxy:start"),
   getProxyStatus: () => ipcRenderer.invoke("proxy:status"),
   getData: () => ipcRenderer.invoke("data:get"),
@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld("nightfall", {
   installUpdate: () => ipcRenderer.invoke("update:install"),
   collectDiagnostics: () => ipcRenderer.invoke("diagnostics:collect"),
   preflightCheck: () => ipcRenderer.invoke("preflight:check"),
+  saveTheme: (theme) => ipcRenderer.invoke("theme:save", theme),
+  listProfiles: () => ipcRenderer.invoke("profiles:list"),
+  createProfile: (name) => ipcRenderer.invoke("profiles:create", name),
+  switchProfile: (id) => ipcRenderer.invoke("profiles:switch", id),
+  renameProfile: (id, name) => ipcRenderer.invoke("profiles:rename", id, name),
+  deleteProfile: (id) => ipcRenderer.invoke("profiles:delete", id),
   applyNetworkFix: () => ipcRenderer.invoke("netfix:apply"),
   getWhatsNew: () => ipcRenderer.invoke("whatsnew:get"),
   ackWhatsNew: () => ipcRenderer.invoke("whatsnew:ack"),

@@ -13,6 +13,8 @@
   toggle.addEventListener("click", () => {
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
     localStorage.setItem("nightfall.theme", root.dataset.theme);
+    // 同时告诉主进程：下次开窗要用对应的底色，否则冷启动会闪一下反色
+    window.nightfall?.saveTheme?.(root.dataset.theme);
     syncLabel();
   });
 

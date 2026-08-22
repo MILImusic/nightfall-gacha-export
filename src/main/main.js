@@ -11,6 +11,8 @@ const { promisify } = require("node:util");
 const { clearHandoverFlag, finalizeUpdate } = require("./bootstrap");
 const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./proxy");
 const { loadStore, mergeCapture, toCsv } = require("./store");
+const { identifyProfile } = require("./profiles");
+const profileStore = require("./profilestore");
 const { enrichStore } = require("./catalog");
 const { checkForUpdate, downloadUpdate } = require("./updater");
 const { collectDiagnostics, collectDiagnosticsData, preflightWarnings } = require("./diagnostics");
@@ -38,8 +40,11 @@ function resourcePath(name) {
     : path.join(app.getAppPath(), "resources", name);
 }
 
-function dataPath() {
-  return path.join(app.getPath("userData"), "records.json");
+// 记录按账号档案分文件存；老用户的 records.json 首次启动时会被收编为"账号1"。
+async function dataPath() {
+  const userData = app.getPath("userData");
+  const id = await profileStore.activeProfileId(userData);
+  return profileStore.profileDataPath(userData, id);
 }
 
 function quotePowerShell(value) {
@@ -58,13 +63,38 @@ function redirectorAlive() {
   }
 }
 
+// 窗口底色必须跟当前主题一致：内容不满一屏、或页面尚未绘制完时露出的就是它。
+// 主题存在渲染进程的 localStorage 里主进程读不到，所以另存一份到 userData。
+const THEME_BG = { light: "#fbfbfa", dark: "#0e0e0f" };
+function themePath() {
+  return path.join(app.getPath("userData"), "theme.json");
+}
+function readThemeSync() {
+  try {
+    const raw = require("node:fs").readFileSync(themePath(), "utf8");
+    const value = JSON.parse(raw)?.theme;
+    return value === "dark" || value === "light" ? value : "light";
+  } catch {
+    return "light";
+  }
+}
+
+ipcMain.handle("theme:save", async (_event, theme) => {
+  if (theme !== "dark" && theme !== "light") return false;
+  await fs.writeFile(themePath(), `${JSON.stringify({ theme })}\n`, "utf8");
+  return true;
+});
+
 function createWindow() {
   const window = new BrowserWindow({
-    width: 1040,
-    height: 720,
-    minWidth: 840,
-    minHeight: 600,
-    backgroundColor: "#111318",
+    // 顶栏控件随版本增加（账号切换、诊断、修复、导出…），1040 宽已经挤到换行；
+    // 高度留到 760 但不超过 1366x768 笔记本的可用高度。
+    width: 1180,
+    height: 760,
+    minWidth: 960,
+    minHeight: 620,
+    backgroundColor: THEME_BG[readThemeSync()],
+    show: false,
     icon: resourcePath("icon.png"),
     autoHideMenuBar: true,
     webPreferences: {
@@ -73,24 +103,60 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
     },
   });
+  // 等首帧准备好再显示，避免用户看到未绘制的空窗口
+  window.once("ready-to-show", () => window.show());
   window.loadFile(path.join(__dirname, "../renderer/index.html"));
   mainWindow = window;
 }
 
-ipcMain.handle("history:fetch", async () => {
+ipcMain.handle("history:fetch", async (_event, options = {}) => {
   if (process.platform !== "win32") throw new Error("数据捕获仅支持 Windows");
   if (fetching) throw new Error("正在获取记录，请稍候");
   fetching = true;
   try {
-    const existing = await loadStore(dataPath());
+    const userData = app.getPath("userData");
+    const { activeId, profiles } = await profileStore.listProfiles(userData);
+    const target = await dataPath();
+    const existing = await loadStore(target);
     const capture = await proxy.fetchAll({ knownStore: existing, onProgress: (progress) => mainWindow?.webContents.send("history:progress", progress) });
     if (!capture.complete) throw new Error(`只读到 ${capture.records.length}/${capture.expectedTotal} 条，未写入本地记录`);
-    const store = await mergeCapture(dataPath(), { ...capture, capturedAt: new Date().toISOString() });
+
+    // 合并之前先认人：协议里没有账号标识，靠最早几抽的指纹判断这份记录属于谁。
+    // 判错就把小号并进大号，而且增量校验会在之后报错、脏了难修——所以宁可停下来问。
+    const merged = capture.incremental ? [...existing.records, ...capture.records] : capture.records;
+    // 把每个档案已存的记录一并交给判定——主判据是记录重叠度，对"历史记录过期"免疫
+    const storedRecords = {};
+    for (const item of profiles) {
+      storedRecords[item.id] = item.id === activeId
+        ? existing.records
+        : (await loadStore(profileStore.profileDataPath(userData, item.id))).records;
+    }
+    const identity = identifyProfile({ records: merged, profiles, activeId, storedRecords });
+    if (identity.verdict !== "same" && identity.verdict !== "adopt" && !options.force) {
+      const other = profiles.find((item) => item.id === identity.profileId);
+      return {
+        conflict: {
+          verdict: identity.verdict,
+          otherProfileId: identity.profileId,
+          otherProfileName: other?.name ?? null,
+          activeProfileName: profiles.find((item) => item.id === activeId)?.name ?? null,
+        },
+      };
+    }
+
+    const store = await mergeCapture(target, { ...capture, capturedAt: new Date().toISOString() });
+    await profileStore.syncProfileStats(userData, activeId, store);
     return { store: enrichStore(store), incremental: Boolean(capture.incremental), newCount: capture.newCount ?? capture.records.length };
   } finally {
     fetching = false;
   }
 });
+
+ipcMain.handle("profiles:list", async () => profileStore.listProfiles(app.getPath("userData")));
+ipcMain.handle("profiles:create", async (_event, name) => profileStore.createProfile(app.getPath("userData"), { name }));
+ipcMain.handle("profiles:switch", async (_event, id) => profileStore.switchProfile(app.getPath("userData"), id));
+ipcMain.handle("profiles:rename", async (_event, id, name) => profileStore.renameProfile(app.getPath("userData"), id, name));
+ipcMain.handle("profiles:delete", async (_event, id) => profileStore.deleteProfile(app.getPath("userData"), id));
 
 ipcMain.handle("proxy:status", () => ({ started: redirectorAlive(), connected: proxy.connected(), gamePort: activeGamePort }));
 
@@ -309,10 +375,10 @@ ipcMain.handle("whatsnew:ack", async () => {
   return true;
 });
 
-ipcMain.handle("data:get", async () => enrichStore(await loadStore(dataPath())));
+ipcMain.handle("data:get", async () => enrichStore(await loadStore(await dataPath())));
 
 ipcMain.handle("data:export-json", async () => {
-  const store = enrichStore(await loadStore(dataPath()));
+  const store = enrichStore(await loadStore(await dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.json", filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
@@ -320,7 +386,7 @@ ipcMain.handle("data:export-json", async () => {
 });
 
 ipcMain.handle("data:export-csv", async () => {
-  const store = enrichStore(await loadStore(dataPath()));
+  const store = enrichStore(await loadStore(await dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `\ufeff${toCsv(store)}`, "utf8");
