@@ -299,7 +299,10 @@ captureButton.addEventListener("click", async () => {
       // 看门狗：主进程那条提权调用有可能卡在等待 UAC 而永不返回（用户改过 UAC 策略时尤其如此），
       // 底层超时未必杀得掉那个等待中的进程。这一层完全在界面里，保证按钮不会永远停在"正在启动"。
       await Promise.race([window.nightfall.startProxy(), startProxyWatchdog()]);
-      status.textContent = "接管已启动。现在登录游戏即可；如果游戏已经登录着，进入一次「契约 → 抽卡记录」界面。接管成功后按钮会自动变成“获取全部记录”。";
+      // 实际用户多数是「游戏已开、甚至已经站在抽卡记录页」才打开本工具，
+      // 所以把那种情况的做法放在最前面说，而不是按我们设想的理想顺序讲。
+      status.textContent = "接管已启动。如果你现在就在游戏的「契约 → 抽卡记录」页面：退出这个页面、再重新进一次即可。"
+        + "如果游戏还没登录，直接登录就行。接管成功后按钮会自动变成“获取全部记录”。";
       proxyStartedAt = Date.now();
       void runPreflight();
       return;

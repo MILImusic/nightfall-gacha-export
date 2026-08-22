@@ -118,6 +118,13 @@ function formatDiagnostics(data) {
     }`,
     `系统 UAC 是否开启：${yesNo(data.uacEnabled)}${data.uacEnabled === false ? "（已关闭：程序默认即拥有管理员权限，旧版本在此环境下请求提权可能卡住）" : ""}`,
     `本工具是否以管理员身份运行：${yesNo(data.elevated)}${data.elevated === false ? "（未提权，启动接管时需要通过 UAC 授权弹窗）" : ""}`,
+    `记住的游戏端口：${
+      data.rememberedPort == null
+        ? "（无记录，将按探测结果或默认值）"
+        : data.rememberedPort === "unreadable"
+          ? "读取失败——端口记忆文件损坏，已按默认值继续（不影响使用）"
+          : data.rememberedPort
+    }`,
     `本工具接管的端口：${data.activeGamePort ?? GAME_PORT}${data.activeGamePort && data.activeGamePort !== GAME_PORT ? "（已自动适配，非默认值）" : ""}`,
     `游戏端口(${GAME_PORT})的 TCP 连接：${
       data.gamePortConnections == null
@@ -217,6 +224,7 @@ async function collectDiagnosticsData({
   collectedAt,
   activeGamePort = null,
   elevated = null,
+  rememberedPort = null,
 }) {
   const notes = [];
   let proxyAddress = null;
@@ -343,6 +351,7 @@ async function collectDiagnosticsData({
     gameConnections,
     gameState: classifyGameState(gameConnections),
     activeGamePort,
+    rememberedPort,
     elevated,
     dnsEntries,
     notes,

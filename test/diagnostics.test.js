@@ -413,3 +413,12 @@ test("collectDiagnosticsData 一次查询同时取回 HVCI 与 UAC", async () =>
   assert.equal(data.memoryIntegrityOn, false);
   assert.equal(data.uacEnabled, false);
 });
+
+test("formatDiagnostics 说明端口记忆状态（含文件损坏这一档）", () => {
+  assert.match(formatDiagnostics({ version: "0.2.0" }), /记住的游戏端口：（无记录，将按探测结果或默认值）/);
+  assert.match(formatDiagnostics({ version: "0.2.0", rememberedPort: 12085 }), /记住的游戏端口：12085/);
+  assert.match(
+    formatDiagnostics({ version: "0.2.0", rememberedPort: "unreadable" }),
+    /记住的游戏端口：读取失败——端口记忆文件损坏，已按默认值继续（不影响使用）/,
+  );
+});

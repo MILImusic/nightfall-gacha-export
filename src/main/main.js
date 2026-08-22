@@ -183,9 +183,19 @@ function gamePortPath() {
   return path.join(app.getPath("userData"), "gameport.json");
 }
 
-async function rememberedGamePort() {
+// 返回 null=没有记录；整数=记住的端口；"unreadable"=文件在但读不出来（损坏）。
+// 区分后两者是为了让诊断能说清楚——静默回落默认值会让排障的人误判（08-21 我自己就栽过）。
+async function rememberedGamePortState() {
+  const fsSync = require("node:fs");
+  const exists = fsSync.existsSync(gamePortPath());
   const value = (await readJsonQuiet(gamePortPath()))?.port;
-  return Number.isInteger(value) ? value : null;
+  if (Number.isInteger(value)) return value;
+  return exists ? "unreadable" : null;
+}
+
+async function rememberedGamePort() {
+  const state = await rememberedGamePortState();
+  return Number.isInteger(state) ? state : null;
 }
 
 async function rememberGamePort(port) {
@@ -288,7 +298,11 @@ function diagnosticsInputs() {
 }
 
 ipcMain.handle("diagnostics:collect", async () =>
-  collectDiagnostics({ ...diagnosticsInputs(), elevated: await isElevated() }));
+  collectDiagnostics({
+    ...diagnosticsInputs(),
+    elevated: await isElevated(),
+    rememberedPort: await rememberedGamePortState(),
+  }));
 
 ipcMain.handle("preflight:check", async () => {
   const elevated = await isElevated();
