@@ -76,3 +76,42 @@ test("CSV 保留结果 ID、卡池与毫秒时间", () => {
   assert.match(csv, /recordId,poolId,poolName,resultId,name,character,rarity,poolPullNumber,sixStarPity,timestamp,timestampMs/);
   assert.match(csv, /30005,,13001028,,,,,,2026-08-20T07:18:25.712Z,1787210305712/);
 });
+
+test("抓到一半的记录也会落库，并且收据标成不完整", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "nightfall-store-partial-"));
+  const file = path.join(directory, "history.json");
+  const partial = Array.from({ length: 15 }, (_, index) => ({
+    key: `p-${index}`, poolId: 1, resultId: 10 + index, timestampMs: 500 - index, historyPosition: index + 1,
+  }));
+  const store = await mergeCapture(file, {
+    expectedTotal: 30,
+    pageCount: 3,
+    complete: false,
+    records: partial,
+    interrupted: { reason: "errorCode", page: 4, offset: 15, errorCode: 142, requestId: 15, sequence: 15 },
+    trace: [{ page: 1, offset: 0, requestId: 0, errorCode: 0, records: 5, retries: 0 }],
+  });
+  assert.equal(store.records.length, 15, "读到的必须存下来，不能因为不完整就全丢");
+  const receipt = store.captures.at(-1);
+  assert.equal(receipt.complete, false);
+  assert.equal(receipt.interrupted.page, 4);
+  assert.equal(receipt.interrupted.requestId, 15, "断点 requestId 要落盘，否则没法查根因");
+  assert.equal(receipt.trace.length, 1);
+});
+
+test("续抓补齐后收据变完整，条数对不上仍然拒绝写入", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "nightfall-store-resume-"));
+  const file = path.join(directory, "history.json");
+  const make = (count, from = 0) => Array.from({ length: count }, (_, index) => ({
+    key: `r-${from + index}`, poolId: 1, resultId: 10 + from + index,
+    timestampMs: 500 - from - index, historyPosition: from + index + 1,
+  }));
+  await mergeCapture(file, { expectedTotal: 30, pageCount: 3, complete: false, records: make(15) });
+  const store = await mergeCapture(file, { expectedTotal: 30, pageCount: 6, complete: true, records: make(30) });
+  assert.equal(store.records.length, 30);
+  assert.equal(store.captures.at(-1).complete, true);
+  await assert.rejects(
+    mergeCapture(file, { expectedTotal: 99, pageCount: 6, complete: true, records: make(30) }),
+    /不一致/,
+  );
+});

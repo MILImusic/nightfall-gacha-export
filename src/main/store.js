@@ -45,9 +45,17 @@ async function mergeCapture(filePath, capture) {
     expectedTotal: capture.expectedTotal,
     imported: capture.records.length,
     pageCount: capture.pageCount,
+    // complete=false 的收据不是"抓完了"，只是"抓到这儿断了"。
+    // incrementalPlan 只认 complete=true 的收据当增量基准——别把这个条件放松，
+    // 否则下次增量会从这个偏小的条数起算，把中间整段静默漏掉。
     complete: capture.complete,
     incremental: Boolean(capture.incremental),
     newCount: capture.newCount ?? capture.records.length,
+    // 断在哪一页、错误码、当时的 requestId/sequence —— 用户报"每次都在 190 页断"
+    // 时，这段是唯一能拿来定根因的东西
+    interrupted: capture.interrupted ?? null,
+    resumedFromPage: capture.resumedFromPage ?? null,
+    trace: capture.trace ?? null,
   });
   await saveStore(filePath, store);
   return store;

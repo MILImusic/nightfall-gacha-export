@@ -328,6 +328,10 @@ window.nightfall.onProgress((payload) => {
     status.textContent = "增量重叠校验未通过，已自动切换为全量校验…";
     return;
   }
+  if (payload.resumed) {
+    status.textContent = `上次抓到第 ${payload.current} 页断了，这次从第 ${payload.current + 1} 页接着抓…`;
+    return;
+  }
   stepMarker.textContent = `${payload.current}/${payload.total}`;
   status.textContent = `${payload.incremental ? "正在增量读取" : "正在读取"}第 ${payload.current}/${payload.total} 页，已取得 ${payload.records} 条…`;
 });
@@ -622,9 +626,19 @@ async function runFetch(options = {}) {
     }
     render(result.store);
     await refreshProfiles();
-    status.textContent = result.incremental
-      ? `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`
-      : `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
+    if (result.complete === false) {
+      // 抓到一半断了。这些记录已经存下来了，也能导出——但必须说清它不完整，
+      // 免得用户拿着一份缺一截的记录当全量用。
+      status.textContent = `中途中断，已保存读到的 ${result.store.records.length}/${result.expectedTotal} 条`
+        + `（${result.interrupted?.message ?? "连接中断"}）。`
+        + `这份记录并不完整，可以先导出；再点一次「获取全部记录」会从断掉的地方接着抓。`;
+    } else if (result.incremental) {
+      status.textContent = `增量获取完成：新增 ${result.newCount} 条，本地共有 ${result.store.records.length} 条记录。`;
+    } else if (result.resumedFromPage) {
+      status.textContent = `续抓完成：从第 ${result.resumedFromPage + 1} 页接着抓，本地共有 ${result.store.records.length} 条记录。`;
+    } else {
+      status.textContent = `全量获取完成：本地共有 ${result.store.records.length} 条记录。`;
+    }
   } catch (error) {
     status.textContent = humanizeError(error);
   } finally {

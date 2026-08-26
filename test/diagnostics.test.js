@@ -5,6 +5,7 @@ const {
   collectDiagnosticsData,
   firewallCovers,
   formatDiagnostics,
+  formatLastCapture,
   classifyDnsResidue,
   classifyGameState,
   firewallActiveForNetwork,
@@ -421,4 +422,24 @@ test("formatDiagnostics 说明端口记忆状态（含文件损坏这一档）",
     formatDiagnostics({ version: "0.2.0", rememberedPort: "unreadable" }),
     /记住的游戏端口：读取失败——端口记忆文件损坏，已按默认值继续（不影响使用）/,
   );
+});
+
+test("诊断带出上次抓取的断点页、错误码和 requestId", () => {
+  const text = formatLastCapture({
+    capturedAt: "2026-08-27T00:00:00.000Z",
+    complete: false,
+    imported: 950,
+    expectedTotal: 1520,
+    pageCount: 190,
+    interrupted: { reason: "errorCode", page: 191, offset: 950, errorCode: 142, requestId: 0, sequence: 190 },
+    trace: [{ page: 1, offset: 0, requestId: 56, errorCode: 0, records: 5, retries: 0 }],
+  }).join("\n");
+  assert.match(text, /中途中断/);
+  assert.match(text, /950\/1520/);
+  assert.match(text, /第 191 页/);
+  assert.match(text, /requestId=0/, "断点 requestId 必须出现，这是判断单字节回绕的关键证据");
+});
+
+test("还没抓过时诊断不炸也不瞎报", () => {
+  assert.match(formatLastCapture(null).join("\n"), /还没有成功读取过/);
 });

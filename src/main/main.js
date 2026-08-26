@@ -119,7 +119,12 @@ ipcMain.handle("history:fetch", async (_event, options = {}) => {
     const target = await dataPath();
     const existing = await loadStore(target);
     const capture = await proxy.fetchAll({ knownStore: existing, onProgress: (progress) => mainWindow?.webContents.send("history:progress", progress) });
-    if (!capture.complete) throw new Error(`只读到 ${capture.records.length}/${capture.expectedTotal} 条，未写入本地记录`);
+    // 抓到一半断了也要落库。以前这里直接 throw，前面几百页全丢——记录多的玩家
+    // 每次都在同一页断，于是一条都存不下来，工具对他等于不可用。
+    // 存下来的这份会标 complete:false，不会被当成增量基准（见 store.mergeCapture 注释）。
+    if (!capture.complete && capture.records.length === 0) {
+      throw new Error(capture.interrupted?.message ?? "一条记录都没读到，未写入本地记录");
+    }
 
     // 合并之前先认人：协议里没有账号标识，靠最早几抽的指纹判断这份记录属于谁。
     // 判错就把小号并进大号，而且增量校验会在之后报错、脏了难修——所以宁可停下来问。
@@ -146,7 +151,15 @@ ipcMain.handle("history:fetch", async (_event, options = {}) => {
 
     const store = await mergeCapture(target, { ...capture, capturedAt: new Date().toISOString() });
     await profileStore.syncProfileStats(userData, activeId, store);
-    return { store: enrichStore(store), incremental: Boolean(capture.incremental), newCount: capture.newCount ?? capture.records.length };
+    return {
+      store: enrichStore(store),
+      incremental: Boolean(capture.incremental),
+      newCount: capture.newCount ?? capture.records.length,
+      complete: Boolean(capture.complete),
+      expectedTotal: capture.expectedTotal,
+      interrupted: capture.interrupted ?? null,
+      resumedFromPage: capture.resumedFromPage ?? null,
+    };
   } finally {
     fetching = false;
   }
@@ -297,11 +310,23 @@ function diagnosticsInputs() {
   };
 }
 
+// 上一次抓取的收据也一并放进诊断：用户报"每次都在第 190 页断"时，
+// 断点页号／错误码／当时的 requestId 就在这段里，不用他再描述一遍。
+async function lastCaptureForDiagnostics() {
+  try {
+    const store = await loadStore(await dataPath());
+    return store.captures?.[store.captures.length - 1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 ipcMain.handle("diagnostics:collect", async () =>
   collectDiagnostics({
     ...diagnosticsInputs(),
     elevated: await isElevated(),
     rememberedPort: await rememberedGamePortState(),
+    lastCapture: await lastCaptureForDiagnostics(),
   }));
 
 ipcMain.handle("preflight:check", async () => {

@@ -16,6 +16,7 @@ const {
   frameStream,
   incrementalPlan,
   NightfallProxy,
+  resumePlan,
   selectProxyAddress,
 } = require("../src/main/proxy");
 
@@ -321,4 +322,170 @@ test("透明代理在同一游戏连接内注入请求且不把响应塞回游�
   upstreamSocket?.destroy();
   await proxy.close();
   await new Promise((resolve) => upstream.close(resolve));
+});
+
+// ── 抓到一半断了：部分落库 + 断点续抓 + 断线日志 ───────────────────────────
+// 背景：有玩家反复报"导到 190 多页就掉线"，而当时 fetchAll 一遇到失败页就 throw，
+// 前面几百页全部丢弃、一条不落库，所以他抓了好几次手上仍然是 0 条记录。
+
+function makeRecords(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    poolId: 10,
+    resultId: 1000 + index,
+    timestampMs: 9000 - index,
+  }));
+}
+
+// 第 stopAtPage 页（1 起数）开始一直返回限流码，模拟"每次都断在同一页"
+function stubProxy(allRecords, { pageSize = 5, stopAtPage = null, errorCode = 142 } = {}) {
+  const offsets = [];
+  const proxy = new NightfallProxy();
+  proxy.requestPage = async (offset) => {
+    offsets.push(offset);
+    const pageNumber = Math.floor(offset / pageSize) + 1;
+    if (stopAtPage && pageNumber >= stopAtPage) {
+      return { errorCode, offset, total: allRecords.length, records: [], requestId: offset & 0xff, sequence: offset };
+    }
+    return {
+      errorCode: 0, offset, total: allRecords.length,
+      records: allRecords.slice(offset, offset + pageSize),
+      requestId: offset & 0xff, sequence: offset,
+    };
+  };
+  return { proxy, offsets };
+}
+
+test("中途断掉时保留已读页而不是全部丢弃", async () => {
+  const all = makeRecords(30);
+  const { proxy } = stubProxy(all, { stopAtPage: 4 });
+  const capture = await proxy.fetchAll({ intervalMs: 0, retryDelaysMs: [0] });
+  assert.equal(capture.complete, false);
+  assert.equal(capture.records.length, 15, "前三页 15 条必须留下来");
+  assert.equal(capture.expectedTotal, 30);
+  assert.equal(capture.interrupted.page, 4);
+  assert.equal(capture.interrupted.errorCode, 142);
+});
+
+test("断线日志记下断点那一页的 requestId 和 sequence", async () => {
+  const all = makeRecords(30);
+  const { proxy } = stubProxy(all, { stopAtPage: 4 });
+  const capture = await proxy.fetchAll({ intervalMs: 0, retryDelaysMs: [0] });
+  assert.equal(capture.interrupted.requestId, 15);
+  assert.equal(capture.interrupted.sequence, 15);
+  assert.ok(capture.trace.length > 0, "轨迹不能是空的");
+  assert.equal(capture.trace[0].page, 1, "第 1 页必须一直留在轨迹里");
+  assert.equal(capture.trace.at(-1).errorCode, 142, "最后一条必须是失败的那页");
+});
+
+test("断线轨迹不会无上限增长", async () => {
+  const all = makeRecords(500);
+  const { proxy } = stubProxy(all);
+  const capture = await proxy.fetchAll({ intervalMs: 0, retryDelaysMs: [0] });
+  assert.equal(capture.complete, true);
+  assert.ok(capture.trace.length <= 31, `轨迹应被截到 31 条以内，实际 ${capture.trace.length}`);
+  assert.equal(capture.trace[0].page, 1);
+});
+
+test("上次断在第 4 页时从第 4 页接着抓，不从头重来", async () => {
+  const all = makeRecords(30);
+  const known = makeRecords(15).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const { proxy, offsets } = stubProxy(all);
+  const capture = await proxy.fetchAll({
+    intervalMs: 0,
+    knownStore: { records: known, captures: [{ complete: false, expectedTotal: 30, imported: 15 }] },
+  });
+  assert.deepEqual(offsets, [0, 15, 20, 25], "只抓首页校验 + 断点之后的页");
+  assert.equal(capture.resumedFromPage, 3);
+  assert.equal(capture.complete, true);
+  assert.equal(capture.records.length, 30);
+});
+
+test("期间又抽了卡就不许续抓，必须从头全量", async () => {
+  const all = makeRecords(35);
+  const known = makeRecords(15).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const { proxy, offsets } = stubProxy(all);
+  const capture = await proxy.fetchAll({
+    intervalMs: 0,
+    knownStore: { records: known, captures: [{ complete: false, expectedTotal: 30, imported: 15 }] },
+  });
+  assert.equal(capture.resumedFromPage, null);
+  assert.deepEqual(offsets.slice(0, 3), [0, 5, 10], "必须从第 0 页老实重抓");
+  assert.equal(capture.records.length, 35);
+});
+
+test("首页对不上时拒绝续抓", () => {
+  const known = makeRecords(15).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const firstPage = { total: 30, records: makeRecords(5).map((r) => ({ ...r, resultId: r.resultId + 500 })) };
+  assert.equal(resumePlan(firstPage, {
+    records: known, captures: [{ complete: false, expectedTotal: 30, imported: 15 }],
+  }), null);
+});
+
+// ★ cc 点名的失败条件，专门造一次：不完整的存档绝不能被当成增量基准。
+// 若被当成基准，增量会从偏小的条数起算，把中间整段静默漏掉——而且不会报错。
+test("不完整的存档不能当增量基准（哪怕条数正好对得上）", () => {
+  const known = makeRecords(15).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const firstPage = { total: 30, records: makeRecords(5) };
+  // 故意把 expectedTotal 造成和条数一致，避开"条数对不上"那道门，
+  // 只剩 complete 这一道 —— 删掉 incrementalPlan 里的 complete 过滤，这条必须变红
+  assert.equal(incrementalPlan(firstPage, {
+    records: known,
+    captures: [{ complete: false, expectedTotal: 15, imported: 15 }],
+  }), null, "complete:false 的收据被当成了增量基准");
+});
+
+test("存档里有不完整收据时整份重抓而不是走增量捷径", async () => {
+  const all = makeRecords(30);
+  const known = makeRecords(15).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const { proxy } = stubProxy(all);
+  const capture = await proxy.fetchAll({
+    intervalMs: 0,
+    knownStore: { records: known, captures: [{ complete: false, expectedTotal: 15, imported: 15 }] },
+  });
+  assert.notEqual(capture.incremental, true);
+  assert.equal(capture.records.length, 30, "少一条都说明中间漏了一段");
+});
+
+test("已有完整存档时增量被打断则什么都不存，直接报错", async () => {
+  const known = makeRecords(20).map((record, index) => ({ ...record, historyPosition: index + 1 }));
+  const all = [...makeRecords(10).map((r) => ({ ...r, poolId: 99, resultId: r.resultId + 7000, timestampMs: r.timestampMs + 7000 })), ...known];
+  const { proxy } = stubProxy(all, { stopAtPage: 2 });
+  await assert.rejects(
+    proxy.fetchAll({
+      intervalMs: 0,
+      retryDelaysMs: [0],
+      knownStore: { records: known, captures: [{ complete: true, expectedTotal: 20 }] },
+    }),
+    /第 2 页读取失败/,
+    "用户已有完整存档，半截增量不许硬塞进去",
+  );
+});
+
+// 端到端走一遍那位玩家的真实遭遇：第一次抓到一半断掉，第二次接着抓完。
+// 这条如果红了，说明"抓几次都拿不到记录"的问题回来了。
+test("端到端：第一次断在半路也拿得到记录，第二次续抓补齐", async () => {
+  const fs = require("node:fs/promises");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { loadStore, mergeCapture } = require("../src/main/store");
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "nightfall-e2e-"));
+  const file = path.join(directory, "history.json");
+  const all = makeRecords(30);
+
+  const broken = stubProxy(all, { stopAtPage: 4 });
+  const firstRun = await broken.proxy.fetchAll({ intervalMs: 0, retryDelaysMs: [0] });
+  assert.equal(firstRun.complete, false);
+  const afterFirst = await mergeCapture(file, { ...firstRun, capturedAt: "2026-08-27T00:00:00.000Z" });
+  assert.equal(afterFirst.records.length, 15, "断了也得有记录可用，不能是 0 条");
+
+  const healed = stubProxy(all);
+  const secondRun = await healed.proxy.fetchAll({ intervalMs: 0, knownStore: await loadStore(file) });
+  assert.equal(secondRun.resumedFromPage, 3, "第二次必须从断点接着抓");
+  assert.deepEqual(healed.offsets, [0, 15, 20, 25]);
+  const afterSecond = await mergeCapture(file, { ...secondRun, capturedAt: "2026-08-27T00:05:00.000Z" });
+  assert.equal(afterSecond.records.length, 30);
+  assert.equal(afterSecond.captures.at(-1).complete, true);
+  assert.equal(new Set(afterSecond.records.map((item) => item.key)).size, 30, "续抓不许产生重复记录");
+  const positions = afterSecond.records.map((item) => item.historyPosition).sort((a, b) => a - b);
+  assert.deepEqual(positions, Array.from({ length: 30 }, (_, index) => index + 1), "历史位置必须连续无断层");
 });

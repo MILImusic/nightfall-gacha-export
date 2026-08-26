@@ -82,6 +82,33 @@ function firewallCovers(profiles, categories) {
   return current.every((category) => ruleProfiles.includes(categoryToProfile[category] ?? category));
 }
 
+// 上一次抓取的收据。断在第几页、错误码是多少、断的那一页 requestId 是多少——
+// requestId 是单字节（255 之后绕回 0），"每次都在 190 多页断"最像的解释就是它绕了回去。
+// 这一段是把假设变成证据的唯一途径，所以宁可诊断文本长一点，也要把断点那几页原样带出来。
+function formatLastCapture(capture) {
+  if (!capture) return ["上一次读取记录：（还没有成功读取过）"];
+  const lines = [
+    `上一次读取记录：${capture.capturedAt ?? "时间未知"}`,
+    `  · 结果：${capture.complete ? "完整" : "中途中断（这份记录不完整）"}`,
+    `  · 取得/服务器总数：${capture.imported ?? "?"}/${capture.expectedTotal ?? "?"}，共 ${capture.pageCount ?? "?"} 页`,
+  ];
+  if (capture.resumedFromPage) lines.push(`  · 本次是续抓：从第 ${capture.resumedFromPage + 1} 页接着抓`);
+  const stop = capture.interrupted;
+  if (stop) {
+    lines.push(`  · 断点：第 ${stop.page} 页（offset ${stop.offset}），原因 ${stop.reason}`);
+    lines.push(`  · 断点详情：${stop.message ?? "（无）"}`);
+    if (stop.requestId != null) lines.push(`  · 断点 requestId=${stop.requestId}，sequence=${stop.sequence}`);
+    if (stop.returnedOffset != null) lines.push(`  · 服务器返回的 offset：${stop.returnedOffset}`);
+  }
+  if (capture.trace?.length) {
+    lines.push("  · 最后几页的请求轨迹（页/offset/requestId/错误码/条数/重试）：");
+    for (const item of capture.trace.slice(-8)) {
+      lines.push(`      ${item.page}/${item.offset}/${item.requestId ?? "-"}/${item.errorCode ?? "-"}/${item.records ?? "-"}/${item.retries ?? 0}${item.failed ? ` 失败：${item.failed}` : ""}`);
+    }
+  }
+  return lines;
+}
+
 function formatDiagnostics(data) {
   const yesNo = (value) => (value === true ? "是" : value === false ? "否" : "未知");
   const lines = [
@@ -134,6 +161,7 @@ function formatDiagnostics(data) {
           : `无${data.redirectorAlive ? "——游戏还没有建立连接，请在接管开启的状态下进入一次游戏里的「契约 → 抽卡记录」界面" : ""}`
     }`,
   ];
+  lines.push(...formatLastCapture(data.lastCapture));
   if (data.notes?.length) {
     lines.push("备注：", ...data.notes.map((note) => `  · ${note}`));
   }
@@ -225,6 +253,7 @@ async function collectDiagnosticsData({
   activeGamePort = null,
   elevated = null,
   rememberedPort = null,
+  lastCapture = null,
 }) {
   const notes = [];
   let proxyAddress = null;
@@ -355,6 +384,7 @@ async function collectDiagnosticsData({
     elevated,
     dnsEntries,
     notes,
+    lastCapture,
     collectedAt,
   };
 }
@@ -373,6 +403,7 @@ module.exports = {
   classifyGameState,
   firewallActiveForNetwork,
   formatDiagnostics,
+  formatLastCapture,
   isResidueDns,
   listIpv4,
   preflightWarnings,

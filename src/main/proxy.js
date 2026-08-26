@@ -66,6 +66,43 @@ function recordToken(record) {
   return `${record.poolId}:${record.resultId}:${record.timestampMs}`;
 }
 
+// 把已存的记录还原成"抓过的页"，用于断点续抓：aggregatePages 会按页序重排
+// historyPosition，所以这里必须按 historyPosition 升序切块，顺序错了整份记录都会错位。
+function chunkIntoPages(records, pageSize, total) {
+  const pages = [];
+  for (let index = 0; index < records.length; index += pageSize) {
+    pages.push({ total, offset: index, records: records.slice(index, index + pageSize) });
+  }
+  return pages;
+}
+
+// 上次抓到一半就断了 → 这次从断点接着抓，而不是从第 0 页重来。
+// 任何一项对不上就返回 null（＝老老实实全量重抓）：宁可多抓一遍，也不能把
+// 错位的两截拼成一份看起来完整的记录。
+function resumePlan(firstPage, knownStore) {
+  const captures = knownStore?.captures ?? [];
+  const last = captures[captures.length - 1];
+  if (!last || last.complete) return null;
+  const known = knownStore?.records ?? [];
+  if (known.length === 0) return null;
+  if (!known.every((record) => Number.isInteger(record.historyPosition))) return null;
+  // 期间又抽了卡 → 服务器那边整体后移，旧的 offset 全部失效，只能从头
+  if (firstPage.total !== last.expectedTotal) return null;
+  if (known.length !== last.imported) return null;
+  const pageSize = Math.max(1, firstPage.records.length);
+  // 只在整页边界上接，半页接不回去
+  if (known.length % pageSize !== 0) return null;
+  if (known.length >= firstPage.total) return null;
+  const ordered = [...known].sort((a, b) => a.historyPosition - b.historyPosition);
+  const head = ordered.slice(0, pageSize).map(recordToken);
+  const fresh = firstPage.records.map(recordToken);
+  if (head.length !== fresh.length || head.some((token, index) => token !== fresh[index])) return null;
+  return {
+    resumeFromPage: known.length / pageSize,
+    knownPages: chunkIntoPages(ordered, pageSize, firstPage.total),
+  };
+}
+
 function incrementalPlan(firstPage, knownStore) {
   const lastCapture = [...(knownStore?.captures ?? [])].reverse().find((capture) => capture.complete);
   const knownRecords = knownStore?.records ?? [];
@@ -221,55 +258,126 @@ class NightfallProxy {
       this.upstream.write(buildClientFrame(HISTORY_COMMAND, encodeHistoryRequest(0, offset), requestId));
     }).then((frame) => ({
       errorCode: frame.readUInt16BE(8),
+      // requestId 是单字节、到 255 会绕回 0；sequence 不绕。两个都带出来，
+      // 断线日志才能回答"断的那一页 requestId 是不是刚好绕回去了"。
+      requestId,
+      sequence,
       ...decodeHistoryResponse(frame.subarray(12)),
     }));
   }
 
   async fetchAll({ knownStore, onProgress, intervalMs = 1200, retryDelaysMs = [2500, 5000, 8000] } = {}) {
     const pages = [];
+    // 断线日志：留住第 1 页和最近 TRACE_TAIL 页。中间几百页对排查没用，
+    // 但"断的那一页 requestId/sequence 是多少"必须留住——这是目前唯一
+    // 能证伪 requestId 单字节回绕（255→0）假设的证据。
+    const TRACE_TAIL = 30;
+    const trace = [];
+    const pushTrace = (entry) => {
+      trace.push(entry);
+      if (trace.length > TRACE_TAIL + 1) trace.splice(1, 1);
+    };
+    const countRecords = () => pages.reduce((sum, item) => sum + item.records.length, 0);
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
     const requestWithRetry = async (offset, pageNumber) => {
       let response = await this.requestPage(offset);
+      let retries = 0;
       for (let attempt = 0; response.errorCode !== 0 && attempt < retryDelaysMs.length; attempt++) {
         const waitMs = retryDelaysMs[attempt];
         onProgress?.({ throttled: true, page: pageNumber, waitMs, errorCode: response.errorCode });
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        await wait(waitMs);
         response = await this.requestPage(offset);
+        retries += 1;
       }
+      pushTrace({
+        page: pageNumber,
+        offset,
+        requestId: response.requestId,
+        sequence: response.sequence,
+        errorCode: response.errorCode,
+        returnedOffset: response.offset,
+        records: response.records?.length ?? 0,
+        retries,
+      });
       return response;
     };
+
     const first = await requestWithRetry(0, 1);
     if (first.errorCode !== 0) throw new Error(`服务器拒绝读取首页（错误 ${first.errorCode}）`);
     if (first.offset !== 0 || first.total <= 0) throw new Error(`服务器返回了异常的首条偏移 ${first.offset}`);
-    pages.push(first);
     const pageSize = Math.max(1, first.records.length);
     const totalPages = Math.ceil(first.total / pageSize);
+
+    // 抓到一半停下来：返回 null 表示这一段跑完了，返回对象表示断在哪一页。
+    // 这里不再 throw —— 一 throw 前面几百页就全丢了，那正是"每次都在 190 页断、
+    // 一条记录都没留下"的成因。
+    const fetchRange = async (from, to, progressTotal, incremental) => {
+      for (let pageIndex = from; pageIndex < to; pageIndex++) {
+        await wait(intervalMs);
+        const offset = pageIndex * pageSize;
+        const pageNumber = pageIndex + 1;
+        let page;
+        try {
+          page = await requestWithRetry(offset, pageNumber);
+        } catch (error) {
+          pushTrace({ page: pageNumber, offset, failed: error.message });
+          return { reason: "request", message: `第 ${pageNumber} 页请求失败（${error.message}）`, page: pageNumber, offset };
+        }
+        if (page.errorCode !== 0) {
+          return {
+            reason: "errorCode",
+            message: `第 ${pageNumber} 页读取失败（错误 ${page.errorCode}）`,
+            page: pageNumber, offset, errorCode: page.errorCode,
+            requestId: page.requestId, sequence: page.sequence,
+          };
+        }
+        if (page.offset !== offset) {
+          return {
+            reason: "offset",
+            message: `第 ${pageNumber} 页偏移不匹配（请求 ${offset}，返回 ${page.offset}）`,
+            page: pageNumber, offset, returnedOffset: page.offset,
+            requestId: page.requestId, sequence: page.sequence,
+          };
+        }
+        pages.push(page);
+        onProgress?.({ current: pageNumber, total: progressTotal, records: countRecords(), incremental });
+      }
+      return null;
+    };
+
     const plan = incrementalPlan(first, knownStore);
-    const plannedPages = plan ? Math.min(plan.requiredPages, totalPages) : totalPages;
-    onProgress?.({ current: 1, total: plannedPages, records: first.records.length, incremental: Boolean(plan) });
-    for (let pageIndex = 1; pageIndex < plannedPages; pageIndex++) {
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      const offset = pageIndex * pageSize;
-      const page = await requestWithRetry(offset, pageIndex + 1);
-      if (page.errorCode !== 0) throw new Error(`第 ${pageIndex + 1} 页读取失败（错误 ${page.errorCode}）`);
-      if (page.offset !== offset) throw new Error(`第 ${pageIndex + 1} 页偏移不匹配（请求 ${offset}，返回 ${page.offset}）`);
-      pages.push(page);
-      onProgress?.({ current: pageIndex + 1, total: plannedPages, records: pages.reduce((sum, item) => sum + item.records.length, 0), incremental: Boolean(plan) });
-    }
     if (plan) {
+      pages.push(first);
+      const plannedPages = Math.min(plan.requiredPages, totalPages);
+      onProgress?.({ current: 1, total: plannedPages, records: first.records.length, incremental: true });
+      const stopped = await fetchRange(1, plannedPages, plannedPages, true);
+      // 增量被打断：用户本来就有一份完整存档，这几页新记录接不回去也不该
+      // 硬塞。什么都不存、直接报错，重来一次即可——他没有任何损失。
+      if (stopped) throw Object.assign(new Error(stopped.message), { interrupted: stopped, trace });
       const incremental = aggregateIncremental(pages, plan);
-      if (incremental) return incremental;
-      onProgress?.({ fallback: true, current: pages.length, total: totalPages, records: pages.reduce((sum, item) => sum + item.records.length, 0) });
+      if (incremental) return { ...incremental, trace };
+      onProgress?.({ fallback: true, current: pages.length, total: totalPages, records: countRecords() });
+      const stoppedFull = await fetchRange(pages.length, totalPages, totalPages, false);
+      return { ...aggregatePages(pages), trace, interrupted: stoppedFull ?? null };
     }
-    for (let pageIndex = pages.length; pageIndex < totalPages; pageIndex++) {
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      const offset = pageIndex * pageSize;
-      const page = await requestWithRetry(offset, pageIndex + 1);
-      if (page.errorCode !== 0) throw new Error(`第 ${pageIndex + 1} 页读取失败（错误 ${page.errorCode}）`);
-      if (page.offset !== offset) throw new Error(`第 ${pageIndex + 1} 页偏移不匹配（请求 ${offset}，返回 ${page.offset}）`);
-      pages.push(page);
-      onProgress?.({ current: pageIndex + 1, total: totalPages, records: pages.reduce((sum, item) => sum + item.records.length, 0) });
+
+    // 上次抓到一半就断了 → 从断点接着抓，不从第 0 页重来
+    const resume = resumePlan(first, knownStore);
+    if (resume) {
+      pages.push(...resume.knownPages);
+      onProgress?.({ resumed: true, current: resume.resumeFromPage, total: totalPages, records: countRecords() });
+    } else {
+      pages.push(first);
+      onProgress?.({ current: 1, total: totalPages, records: first.records.length, incremental: false });
     }
-    return aggregatePages(pages);
+    const stopped = await fetchRange(pages.length, totalPages, totalPages, false);
+    return {
+      ...aggregatePages(pages),
+      trace,
+      interrupted: stopped ?? null,
+      resumedFromPage: resume ? resume.resumeFromPage : null,
+    };
   }
 
   async close() {
@@ -289,5 +397,6 @@ module.exports = {
   aggregatePages,
   frameStream,
   incrementalPlan,
+  resumePlan,
   selectProxyAddress,
 };
