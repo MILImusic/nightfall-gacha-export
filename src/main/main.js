@@ -285,14 +285,37 @@ ipcMain.handle("proxy:start", async () => {
   return { started: true, connected: proxy.connected(), gamePort: activeGamePort };
 });
 
+// 探针一次冷启动 + Get-NetFirewallRule 枚举在慢机器上就能超过 8 秒；
+// 一位用户（09-07）诊断里所有走 PowerShell 的项全是「未知」，就是每次探针都没跑完。
+const DIAGNOSTICS_PS_TIMEOUT_MS = 25000;
+// 最近一次探针的结果：ok / timeout / missing（找不到 powershell.exe）/ failed（非零退出）。
+// 所有调用方都把失败静默吞成「未知」，这里单独留一份状态，诊断与体检才能说清"探针本身没跑起来"。
+let powerShellProbeState = null;
+
+function classifyPowerShellError(error) {
+  if (error?.killed || error?.signal === "SIGTERM" || error?.code === "ETIMEDOUT") {
+    return { state: "timeout", detail: `超过 ${DIAGNOSTICS_PS_TIMEOUT_MS / 1000} 秒未返回` };
+  }
+  if (error?.code === "ENOENT") return { state: "missing", detail: "找不到 powershell.exe" };
+  const code = Number.isInteger(error?.code) ? error.code : null;
+  const stderr = String(error?.stderr ?? "").trim().split("\n")[0];
+  return { state: "failed", detail: `${code != null ? `退出码 ${code}` : "启动失败"}${stderr ? `：${stderr.slice(0, 120)}` : ""}` };
+}
+
 async function runDiagnosticsPowerShell(script) {
   // 中文 Windows 的控制台默认 GBK，中文网卡名（如"以太网"）会在 stdout 乱码，强制 UTF-8 输出。
-  const { stdout } = await execFileAsync(
-    "powershell.exe",
-    ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ${script}`],
-    { windowsHide: true, timeout: 8000 },
-  );
-  return stdout;
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ${script}`],
+      { windowsHide: true, timeout: DIAGNOSTICS_PS_TIMEOUT_MS },
+    );
+    powerShellProbeState = { state: "ok", detail: null };
+    return stdout;
+  } catch (error) {
+    powerShellProbeState = classifyPowerShellError(error);
+    throw error;
+  }
 }
 
 function diagnosticsInputs() {
@@ -305,6 +328,7 @@ function diagnosticsInputs() {
     redirectorAlive: redirectorAlive(),
     proxyConnected: proxy.connected(),
     runPowerShell: process.platform === "win32" ? runDiagnosticsPowerShell : null,
+    powerShellProbe: () => powerShellProbeState,
     collectedAt: new Date().toISOString(),
     activeGamePort,
   };

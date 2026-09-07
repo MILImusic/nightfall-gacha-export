@@ -109,6 +109,20 @@ function formatLastCapture(capture) {
   return lines;
 }
 
+// 探针状态：{ state: "ok" | "timeout" | "missing" | "failed", detail }；null=没跑过（非 Windows 或尚未采集）。
+// 下面那些「未知」十有八九都是它没跑起来，所以要单独说清楚，而不是让用户对着一排未知猜。
+function powerShellProbeBroken(probe) {
+  return Boolean(probe && probe.state && probe.state !== "ok");
+}
+
+function formatPowerShellProbe(probe) {
+  if (!probe || !probe.state) return "未知";
+  if (probe.state === "ok") return "正常";
+  if (probe.state === "timeout") return `超时（${probe.detail ?? "未返回"}）——所有依赖它的检测项都会显示未知`;
+  if (probe.state === "missing") return "未找到 powershell.exe——所有依赖它的检测项都会显示未知";
+  return `运行失败（${probe.detail ?? "原因不明"}）——多半被安全软件拦截，所有依赖它的检测项都会显示未知`;
+}
+
 function formatDiagnostics(data) {
   const yesNo = (value) => (value === true ? "是" : value === false ? "否" : "未知");
   const lines = [
@@ -122,6 +136,7 @@ function formatDiagnostics(data) {
       : ["  （无）"]),
     `连接接管驱动是否在运行：${yesNo(data.redirectorAlive)}`,
     `是否已接管游戏连接：${yesNo(data.proxyConnected)}`,
+    `检测程序(PowerShell)是否正常：${formatPowerShellProbe(data.powerShellProbe)}`,
     `当前网络的防火墙是否开启：${yesNo(data.firewallEnabled)}${data.firewallEnabled === false ? "（已关闭，无需放行规则）" : ""}`,
     `防火墙放行规则是否存在：${yesNo(data.firewallRulePresent)}${data.firewallRulePresent === false && data.firewallEnabled === false ? "（防火墙已关闭，不影响使用）" : ""}`,
     `防火墙规则是否覆盖当前网络：${yesNo(data.firewallCoversNetwork)}${
@@ -185,6 +200,12 @@ function listIpv4(interfaces) {
 // 顺序即严重程度：HVCI 直接拦驱动 > 防火墙不覆盖 > 系统代理抢流量 > 规则还没建。
 function preflightWarnings(data) {
   const warnings = [];
+  if (powerShellProbeBroken(data.powerShellProbe)) {
+    warnings.push(
+      `本工具的检测程序（PowerShell）没能运行（${formatPowerShellProbe(data.powerShellProbe).split("——")[0]}），防火墙、游戏端口、DNS 等都无法检测：` +
+        "请检查 360、电脑管家、火绒之类的安全软件是否拦截了 PowerShell，暂时退出后重开工具；若游戏用的不是默认端口，接管也会因探测不到而失败。",
+    );
+  }
   if (data.memoryIntegrityOn) {
     warnings.push(
       "系统「内存完整性(HVCI)」开启中，会拦截接管驱动：到「Windows 安全中心 → 设备安全性 → 内核隔离」关闭它，重启电脑后再试。",
@@ -235,6 +256,11 @@ function preflightWarnings(data) {
   if (data.gameState?.state === "idle" && data.redirectorAlive) {
     warnings.push("游戏已经打开，但还没有连上游戏服务器：游戏不用重启——先完成登录；若已登录，进入一次「契约 → 抽卡记录」界面即可。");
   }
+  if (data.rememberedPort === "unreadable") {
+    warnings.push(
+      "记住游戏端口的文件已损坏，本次会按默认端口接管：若接管不上，请删除数据目录里的 gameport.json 后重开工具，让它重新探测。",
+    );
+  }
   return warnings;
 }
 
@@ -249,6 +275,7 @@ async function collectDiagnosticsData({
   redirectorAlive,
   proxyConnected,
   runPowerShell,
+  powerShellProbe = null,
   collectedAt,
   activeGamePort = null,
   elevated = null,
@@ -359,6 +386,9 @@ async function collectDiagnosticsData({
     }
   }
 
+  // 探针状态要在上面所有 PowerShell 调用之后再读：调用方（main.js）在每次调用时更新它。
+  const probe = typeof powerShellProbe === "function" ? powerShellProbe() : powerShellProbe;
+
   return {
     version,
     osVersion,
@@ -367,6 +397,7 @@ async function collectDiagnosticsData({
     interfaces: listIpv4(interfaces),
     redirectorAlive,
     proxyConnected,
+    powerShellProbe: probe ?? null,
     firewallRulePresent,
     firewallProfiles,
     networkCategories,
@@ -404,7 +435,9 @@ module.exports = {
   firewallActiveForNetwork,
   formatDiagnostics,
   formatLastCapture,
+  formatPowerShellProbe,
   isResidueDns,
   listIpv4,
+  powerShellProbeBroken,
   preflightWarnings,
 };

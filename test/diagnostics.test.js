@@ -443,3 +443,96 @@ test("诊断带出上次抓取的断点页、错误码和 requestId", () => {
 test("还没抓过时诊断不炸也不瞎报", () => {
   assert.match(formatLastCapture(null).join("\n"), /还没有成功读取过/);
 });
+
+test("PowerShell 探针状态：诊断行与体检黄条把「探针没跑起来」说清楚", async () => {
+  const { formatPowerShellProbe, powerShellProbeBroken } = require("../src/main/diagnostics");
+  assert.equal(formatPowerShellProbe(null), "未知");
+  assert.equal(formatPowerShellProbe({ state: "ok" }), "正常");
+  assert.match(formatPowerShellProbe({ state: "timeout", detail: "超过 25 秒未返回" }), /^超时（超过 25 秒未返回）/);
+  assert.match(formatPowerShellProbe({ state: "missing" }), /未找到 powershell\.exe/);
+  assert.match(formatPowerShellProbe({ state: "failed", detail: "退出码 1" }), /运行失败（退出码 1）.*安全软件/);
+  assert.equal(powerShellProbeBroken(null), false);
+  assert.equal(powerShellProbeBroken({ state: "ok" }), false);
+  assert.equal(powerShellProbeBroken({ state: "timeout" }), true);
+
+  // 诊断文本：正常/超时两种都要能一眼看出来
+  assert.match(formatDiagnostics({ version: "0.2.2", powerShellProbe: { state: "ok" } }), /检测程序\(PowerShell\)是否正常：正常/);
+  assert.match(
+    formatDiagnostics({ version: "0.2.2", powerShellProbe: { state: "timeout", detail: "超过 25 秒未返回" } }),
+    /检测程序\(PowerShell\)是否正常：超时（超过 25 秒未返回）——所有依赖它的检测项都会显示未知/,
+  );
+  assert.match(formatDiagnostics({ version: "0.2.2" }), /检测程序\(PowerShell\)是否正常：未知/);
+
+  // 体检：探针坏了排在最前面，且点名安全软件与端口探测；正常/未知不报
+  const broken = preflightWarnings({ powerShellProbe: { state: "failed", detail: "退出码 1" } });
+  assert.equal(broken.length, 1);
+  assert.match(broken[0], /检测程序（PowerShell）没能运行（运行失败（退出码 1））/);
+  assert.match(broken[0], /360、电脑管家、火绒/);
+  assert.match(broken[0], /探测不到而失败/);
+  assert.deepEqual(preflightWarnings({ powerShellProbe: { state: "ok" } }), []);
+  assert.deepEqual(preflightWarnings({ powerShellProbe: null }), []);
+  const mixed = preflightWarnings({ powerShellProbe: { state: "timeout", detail: "x" }, memoryIntegrityOn: true });
+  assert.equal(mixed.length, 2);
+  assert.match(mixed[0], /检测程序（PowerShell）没能运行/);
+
+  // 端口记忆文件损坏：体检要提示，且给出可执行的修法
+  const unreadable = preflightWarnings({ rememberedPort: "unreadable" });
+  assert.equal(unreadable.length, 1);
+  assert.match(unreadable[0], /gameport\.json/);
+  assert.deepEqual(preflightWarnings({ rememberedPort: 12085 }), []);
+  assert.deepEqual(preflightWarnings({ rememberedPort: null }), []);
+});
+
+test("collectDiagnosticsData 在所有探针跑完后读取探针状态（函数或值都行）", async () => {
+  const calls = [];
+  const runPowerShell = async (script) => {
+    calls.push(script);
+    throw Object.assign(new Error("timed out"), { code: "ETIMEDOUT" });
+  };
+  let state = null;
+  const data = await collectDiagnosticsData({
+    version: "0.2.2",
+    interfaces: {},
+    selectAddress: () => "192.168.1.125",
+    redirectorAlive: true,
+    proxyConnected: false,
+    runPowerShell: async (script) => {
+      try {
+        return await runPowerShell(script);
+      } catch (error) {
+        state = { state: "timeout", detail: "超过 25 秒未返回" };
+        throw error;
+      }
+    },
+    powerShellProbe: () => state,
+    collectedAt: "2026-09-07T09:13:00.000Z",
+  });
+  assert.ok(calls.length >= 5);
+  assert.deepEqual(data.powerShellProbe, { state: "timeout", detail: "超过 25 秒未返回" });
+  assert.equal(data.firewallRulePresent, null);
+  assert.equal(data.gameConnections, null);
+  assert.match(formatDiagnostics(data), /检测程序\(PowerShell\)是否正常：超时/);
+  assert.match(preflightWarnings(data)[0], /检测程序（PowerShell）没能运行/);
+
+  const asValue = await collectDiagnosticsData({
+    version: "0.2.2",
+    interfaces: {},
+    selectAddress: () => "192.168.1.125",
+    redirectorAlive: false,
+    proxyConnected: false,
+    runPowerShell: null,
+    powerShellProbe: { state: "ok" },
+    collectedAt: "2026-09-07T09:13:00.000Z",
+  });
+  assert.deepEqual(asValue.powerShellProbe, { state: "ok" });
+  const absent = await collectDiagnosticsData({
+    version: "0.2.2",
+    interfaces: {},
+    selectAddress: () => "192.168.1.125",
+    redirectorAlive: false,
+    proxyConnected: false,
+    runPowerShell: null,
+    collectedAt: "2026-09-07T09:13:00.000Z",
+  });
+  assert.equal(absent.powerShellProbe, null);
+});
