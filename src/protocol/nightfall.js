@@ -1,5 +1,6 @@
 const GAME_PORT = 12090;
 const HISTORY_COMMAND = "000c08";
+const POOL_CATALOG_COMMAND = "000c0b";
 
 function readVarint(buffer, start = 0) {
   let value = 0n;
@@ -85,6 +86,28 @@ function decodeHistoryResponse(payload) {
 function decodeHistoryRequest(payload) {
   const fields = decodeMessage(payload);
   return { poolId: scalar(fields, 1), pageIndex: scalar(fields, 2) };
+}
+
+function decodePoolCatalogRecord(buffer) {
+  const fields = decodeMessage(buffer);
+  const pityBytes = fields.find((field) => field.fieldNumber === 4 && field.wireType === 2)?.value;
+  const pityFields = pityBytes ? decodeMessage(pityBytes) : [];
+  return {
+    poolId: scalar(fields, 1),
+    totalDraws: scalar(fields, 2),
+    status: scalar(fields, 3),
+    pityType: scalar(pityFields, 1),
+    pityCount: scalar(pityFields, 2),
+    relatedItemId: scalar(fields, 5),
+    flag: scalar(fields, 6),
+  };
+}
+
+function decodePoolCatalogResponse(payload) {
+  return decodeMessage(payload)
+    .filter((field) => field.fieldNumber === 1 && field.wireType === 2)
+    .map((field) => decodePoolCatalogRecord(field.value))
+    .filter((item) => Number(item.poolId) > 0);
 }
 
 function encodeVarint(value) {
@@ -213,10 +236,12 @@ function extractHistoryCapture(tcpPackets) {
 module.exports = {
   GAME_PORT,
   HISTORY_COMMAND,
+  POOL_CATALOG_COMMAND,
   collectFlowFrames,
   buildClientFrame,
   decodeHistoryRequest,
   decodeHistoryResponse,
+  decodePoolCatalogResponse,
   encodeHistoryRequest,
   extractHistoryCapture,
   readVarint,

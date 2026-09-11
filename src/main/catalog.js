@@ -22,7 +22,11 @@ function chronology(records) {
   });
 }
 
-function enrichStore(store) {
+function enrichStore(store, dynamic = {}) {
+  const dynamicCards = new Map((dynamic.cards ?? []).map((card) => [Number(card.id), card]));
+  const dynamicPools = new Map((dynamic.pools ?? []).map((pool) => [Number(pool.id), pool]));
+  const findCard = (id) => dynamicCards.get(Number(id)) ?? cardById.get(Number(id));
+  const findPool = (id) => dynamicPools.get(Number(id)) ?? poolById.get(Number(id));
   const metrics = new Map();
   const groups = new Map();
   for (const record of chronology(store.records)) {
@@ -31,7 +35,7 @@ function enrichStore(store) {
     state.pulls += 1;
     state.sinceSix += 1;
     state.exact &&= Number.isInteger(record.historyPosition);
-    const card = cardById.get(record.resultId);
+    const card = findCard(record.resultId);
     metrics.set(record.key, {
       poolPullNumber: state.pulls,
       sixStarPity: card?.rarity === 6 ? state.sinceSix : null,
@@ -53,13 +57,14 @@ function enrichStore(store) {
       completed: id.startsWith("starter:") && state.pulls >= 30,
     })),
     records: store.records.map((record) => {
-      const card = cardById.get(record.resultId);
+      const card = findCard(record.resultId);
       return {
         ...record,
         name: card?.name ?? null,
         character: card?.character ?? null,
         rarity: card?.rarity ?? null,
-        poolName: poolById.get(Number(record.poolId))?.name ?? null,
+        poolName: findPool(record.poolId)?.name ?? null,
+        metadataKnown: Boolean(card),
         ...metrics.get(record.key),
         exactOrder: Number.isInteger(record.historyPosition),
       };

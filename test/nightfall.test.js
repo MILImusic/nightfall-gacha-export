@@ -5,6 +5,7 @@ const {
   buildClientFrame,
   decodeHistoryRequest,
   decodeHistoryResponse,
+  decodePoolCatalogResponse,
   extractHistoryCapture,
   encodeHistoryRequest,
   reassembleSegments,
@@ -83,6 +84,18 @@ test("解码全部记录请求与逐抽响应", () => {
       timestamp: "2026-08-20T07:18:25.712Z",
     }],
   });
+});
+
+test("解码游戏下发的卡池与关联六星 ID", () => {
+  const pity = Buffer.concat([field(1, 3), field(2, 17)]);
+  const pool = Buffer.concat([
+    field(1, 30006), field(2, 42), field(3, 1),
+    messageField(4, pity), field(5, 13001099), field(6, 0),
+  ]);
+  assert.deepEqual(decodePoolCatalogResponse(messageField(1, pool)), [{
+    poolId: 30006, totalDraws: 42, status: 1,
+    pityType: 3, pityCount: 17, relatedItemId: 13001099, flag: 0,
+  }]);
 });
 
 test("重复结果和相同毫秒不会被错误合并", () => {

@@ -67,7 +67,8 @@ function renderPityProgress() {
 
 function renderRows() {
   recordRows.replaceChildren();
-  const records = recordsForActivePool().filter((item) => item.rarity >= 5);
+  // 新版本元数据即使临时拉取失败也不能把真实记录静默吞掉。
+  const records = recordsForActivePool().filter((item) => item.rarity >= 5 || !item.metadataKnown);
   const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
   detailPage = Math.min(detailPage, totalPages);
   const offset = (detailPage - 1) * PAGE_SIZE;
@@ -95,6 +96,7 @@ function renderRaritySummary() {
   const records = recordsForActivePool();
   const sixes = records.filter((record) => record.rarity === 6);
   const fives = records.filter((record) => record.rarity === 5);
+  const unknown = records.filter((record) => !record.metadataKnown);
   raritySummary.replaceChildren();
 
   const fiveCounts = new Map();
@@ -115,10 +117,12 @@ function renderRaritySummary() {
     1,
     Math.ceil(sixes.length / PREVIEW_SIX_SIZE),
     Math.ceil(fiveEntries.length / PREVIEW_FIVE_SIZE),
+    Math.ceil(unknown.length / PREVIEW_FIVE_SIZE),
   );
   previewPage = Math.min(previewPage, totalPages);
   const sixOffset = (previewPage - 1) * PREVIEW_SIX_SIZE;
   const fiveOffset = (previewPage - 1) * PREVIEW_FIVE_SIZE;
+  const unknownOffset = (previewPage - 1) * PREVIEW_FIVE_SIZE;
   const visibleSixes = sixes.slice(sixOffset, sixOffset + PREVIEW_SIX_SIZE);
   const visibleFives = fiveEntries.slice(fiveOffset, fiveOffset + PREVIEW_FIVE_SIZE);
 
@@ -173,7 +177,20 @@ function renderRaritySummary() {
   if (fives.length === 0) fiveList.textContent = "该范围内还没有五星记录";
   else if (visibleFives.length === 0) fiveList.textContent = "本页没有五星记录";
   fiveBlock.append(fiveList);
-  raritySummary.append(sixBlock, fiveBlock);
+  const unknownBlock = document.createElement("div");
+  unknownBlock.className = "rarity-block five-star-block";
+  unknownBlock.innerHTML = `<div class="rarity-heading"><span>待识别</span><strong>${unknown.length}</strong></div>`;
+  const unknownList = document.createElement("div");
+  unknownList.className = "five-star-list";
+  for (const record of unknown.slice(unknownOffset, unknownOffset + PREVIEW_FIVE_SIZE)) {
+    const chip = document.createElement("span");
+    chip.textContent = `结果 ${record.resultId} · ${record.poolName ?? `卡池 ${record.poolId}`}`;
+    unknownList.append(chip);
+  }
+  if (!unknown.length) unknownList.textContent = "没有待识别记录";
+  unknownBlock.append(unknownList);
+  unknownBlock.hidden = unknown.length === 0;
+  raritySummary.append(sixBlock, fiveBlock, unknownBlock);
   previewPageStatus.textContent = `第 ${previewPage} / ${totalPages} 页`;
   previousPreviewPage.disabled = previewPage <= 1;
   nextPreviewPage.disabled = previewPage >= totalPages;

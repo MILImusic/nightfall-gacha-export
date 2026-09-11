@@ -3,8 +3,10 @@ const os = require("node:os");
 const {
   buildClientFrame,
   decodeHistoryResponse,
+  decodePoolCatalogResponse,
   encodeHistoryRequest,
   HISTORY_COMMAND,
+  POOL_CATALOG_COMMAND,
 } = require("../protocol/nightfall");
 
 const PROXY_PORT = 34010;
@@ -152,6 +154,7 @@ class NightfallProxy {
     this.injectedRequests = 0;
     this.hiddenServerFrames = 0;
     this.responseIds = new Map();
+    this.poolCatalog = [];
   }
 
   async listen() {
@@ -193,6 +196,14 @@ class NightfallProxy {
     const receive = frameStream((frame) => {
       const command = frame.subarray(4, 7).toString("hex");
       const requestId = frame[10];
+      if (command === POOL_CATALOG_COMMAND && frame.readUInt16BE(8) === 0) {
+        try {
+          const decoded = decodePoolCatalogResponse(frame.subarray(12));
+          if (decoded.length) this.poolCatalog = decoded;
+        } catch {
+          // 目录帧只用于补展示名称；解析失败不能影响游戏原始连接。
+        }
+      }
       if (this.waiter && command === HISTORY_COMMAND && requestId === this.waiter.requestId) {
         const waiter = this.waiter;
         this.waiter = null;
@@ -239,6 +250,10 @@ class NightfallProxy {
   connected() {
     return Boolean(this.game && this.upstream && !this.game.destroyed &&
       !this.upstream.destroyed && this.upstream.readyState === "open");
+  }
+
+  catalogSnapshot() {
+    return this.poolCatalog.map((item) => ({ ...item }));
   }
 
   requestPage(offset) {

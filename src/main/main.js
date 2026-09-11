@@ -13,7 +13,8 @@ const { ALT_PORT, NightfallProxy, PROXY_PORT, selectProxyAddress } = require("./
 const { loadStore, mergeCapture, toCsv } = require("./store");
 const { identifyProfile } = require("./profiles");
 const profileStore = require("./profilestore");
-const { enrichStore } = require("./catalog");
+const { cards, enrichStore } = require("./catalog");
+const { loadLiveCatalog, refreshLiveCatalog } = require("./livecatalog");
 const { checkForUpdate, downloadUpdate } = require("./updater");
 const { collectDiagnostics, collectDiagnosticsData, preflightWarnings } = require("./diagnostics");
 const { decideWhatsNew, notesFor } = require("./changelog");
@@ -45,6 +46,33 @@ async function dataPath() {
   const userData = app.getPath("userData");
   const id = await profileStore.activeProfileId(userData);
   return profileStore.profileDataPath(userData, id);
+}
+
+function liveCatalogPath() {
+  return path.join(app.getPath("userData"), "live-catalog.json");
+}
+
+function playerLogPath() {
+  return path.join(os.homedir(), "AppData", "LocalLow", "bmystu", "ReignofNightfall", "Player.log");
+}
+
+async function enrichCurrentStore(store) {
+  return enrichStore(store, await loadLiveCatalog(liveCatalogPath()));
+}
+
+async function refreshCatalogQuietly(records) {
+  try {
+    return await refreshLiveCatalog({
+      logPath: playerLogPath(),
+      poolSnapshot: proxy.catalogSnapshot(),
+      records,
+      knownCardIds: cards.map((card) => card.id),
+      cachePath: liveCatalogPath(),
+    });
+  } catch (error) {
+    console.warn("[catalog] 自动更新失败，继续使用本地缓存：", error.message);
+    return loadLiveCatalog(liveCatalogPath());
+  }
 }
 
 function quotePowerShell(value) {
@@ -150,9 +178,10 @@ ipcMain.handle("history:fetch", async (_event, options = {}) => {
     }
 
     const store = await mergeCapture(target, { ...capture, capturedAt: new Date().toISOString() });
+    const liveCatalog = await refreshCatalogQuietly(store.records);
     await profileStore.syncProfileStats(userData, activeId, store);
     return {
-      store: enrichStore(store),
+      store: enrichStore(store, liveCatalog),
       incremental: Boolean(capture.incremental),
       newCount: capture.newCount ?? capture.records.length,
       complete: Boolean(capture.complete),
@@ -438,10 +467,10 @@ ipcMain.handle("whatsnew:ack", async () => {
   return true;
 });
 
-ipcMain.handle("data:get", async () => enrichStore(await loadStore(await dataPath())));
+ipcMain.handle("data:get", async () => enrichCurrentStore(await loadStore(await dataPath())));
 
 ipcMain.handle("data:export-json", async () => {
-  const store = enrichStore(await loadStore(await dataPath()));
+  const store = await enrichCurrentStore(await loadStore(await dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.json", filters: [{ name: "JSON", extensions: ["json"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
@@ -449,7 +478,7 @@ ipcMain.handle("data:export-json", async () => {
 });
 
 ipcMain.handle("data:export-csv", async () => {
-  const store = enrichStore(await loadStore(await dataPath()));
+  const store = await enrichCurrentStore(await loadStore(await dataPath()));
   const result = await dialog.showSaveDialog({ defaultPath: "nightfall-gacha-records.csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
   if (result.canceled || !result.filePath) return { canceled: true };
   await fs.writeFile(result.filePath, `\ufeff${toCsv(store)}`, "utf8");

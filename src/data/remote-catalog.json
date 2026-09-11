@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "pools": [
+    { "id": 30006, "name": "隐秘的归属" }
+  ],
+  "cards": [
+    { "id": 13001029, "name": "杯中藏锋", "character": "某某人", "rarity": 6 }
+  ]
+}

@@ -104,3 +104,27 @@ test("起始契约满30抽后不再作为当前垫抽展示", () => {
   assert.equal(store.pityProgress[0].pulls, 30);
   assert.equal(store.pityProgress[0].completed, true);
 });
+
+test("动态目录覆盖静态表并参与六星保底计算", () => {
+  const dynamic = {
+    pools: [{ id: 30006, name: "隐秘的归属" }],
+    cards: [{ id: 13001099, name: "杯中藏锋", character: "某某人", rarity: 6 }],
+  };
+  const store = enrichStore({ records: [
+    record("new-six", 13001099, 1, 30006),
+    record("old-five", 13001014, 2, 30005),
+  ] }, dynamic);
+  const latest = store.records.find((item) => item.key === "new-six");
+  assert.equal(latest.name, "杯中藏锋");
+  assert.equal(latest.character, "某某人");
+  assert.equal(latest.poolName, "隐秘的归属");
+  assert.equal(latest.rarity, 6);
+  assert.equal(latest.sixStarPity, 2);
+  assert.equal(latest.metadataKnown, true);
+});
+
+test("未知结果明确标记为待识别而不是伪装成普通低星", () => {
+  const store = enrichStore({ records: [record("unknown", 99999999, 1, 30006)] });
+  assert.equal(store.records[0].rarity, null);
+  assert.equal(store.records[0].metadataKnown, false);
+});
