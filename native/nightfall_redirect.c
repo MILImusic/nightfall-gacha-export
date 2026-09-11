@@ -4,11 +4,16 @@
  */
 #include <winsock2.h>
 #include <windows.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "windivert.h"
 
 #define MAXBUF WINDIVERT_MTU_MAX
+#define MAX_LOCAL_ADDRS 64
+#define LOCAL_ADDRS_REFRESH_MS 2000
 
 static HANDLE divert_handle = INVALID_HANDLE_VALUE;
 typedef struct
@@ -21,6 +26,73 @@ static CONNECTION_MAP connections[65536];
 static volatile LONG first_intercepted = 0;
 static volatile LONG proxy_confirmed = 0;
 static ULONGLONG first_intercepted_at = 0;
+
+/*
+ * 本机已分配的 IPv4 地址表。
+ * 用途：把游戏这条连接的原始源地址（= 它真正绑的那块网卡）当作反射目的地，
+ * 而不是整台机器赌命令行传进来的那一个地址。多网卡的机器（有线 + 手机热点、
+ * 有线 + WiFi）上，选错网卡的反射包会被 Windows 的强主机模型直接丢掉，
+ * 代理永远等不到 SYN，5 秒后 watchdog fail-open——用户看到的就是
+ * “一点接管游戏就重连一下，但永远接管不上”。
+ * 源地址不在本表里时（Clash/TUN 会给出 198.18/16 这种未真正分配的地址）
+ * 才回落到命令行传进来的地址，保持旧行为。
+ */
+static UINT32 local_addrs[MAX_LOCAL_ADDRS];
+static UINT local_addr_count = 0;
+static ULONGLONG local_addrs_at = 0;
+
+static void refresh_local_addrs(void)
+{
+    ULONG size = 16384;
+    IP_ADAPTER_ADDRESSES *table = NULL;
+    ULONG result = ERROR_BUFFER_OVERFLOW;
+    UINT count = 0;
+
+    local_addrs_at = GetTickCount64();
+    for (int attempt = 0; attempt < 3 && result == ERROR_BUFFER_OVERFLOW; attempt++)
+    {
+        free(table);
+        table = (IP_ADAPTER_ADDRESSES *)malloc(size);
+        if (table == NULL) return;
+        result = GetAdaptersAddresses(AF_INET,
+            GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST |
+            GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME,
+            NULL, table, &size);
+    }
+    if (result != NO_ERROR)
+    {
+        free(table);
+        return;
+    }
+    for (IP_ADAPTER_ADDRESSES *adapter = table;
+         adapter != NULL && count < MAX_LOCAL_ADDRS; adapter = adapter->Next)
+    {
+        if (adapter->OperStatus != IfOperStatusUp) continue;
+        for (IP_ADAPTER_UNICAST_ADDRESS *unicast = adapter->FirstUnicastAddress;
+             unicast != NULL && count < MAX_LOCAL_ADDRS; unicast = unicast->Next)
+        {
+            if (unicast->Address.lpSockaddr == NULL) continue;
+            if (unicast->Address.lpSockaddr->sa_family != AF_INET) continue;
+            local_addrs[count++] =
+                ((struct sockaddr_in *)unicast->Address.lpSockaddr)->sin_addr.s_addr;
+        }
+    }
+    local_addr_count = count;
+    free(table);
+}
+
+static BOOL is_local_addr(UINT32 addr)
+{
+    if (addr == 0) return FALSE;
+    for (UINT i = 0; i < local_addr_count; i++)
+        if (local_addrs[i] == addr) return TRUE;
+    /* 没命中可能只是表旧了（换网、热点刚开、DHCP 续约）：限频刷新后再判一次。 */
+    if (GetTickCount64() - local_addrs_at < LOCAL_ADDRS_REFRESH_MS) return FALSE;
+    refresh_local_addrs();
+    for (UINT i = 0; i < local_addr_count; i++)
+        if (local_addrs[i] == addr) return TRUE;
+    return FALSE;
+}
 
 static DWORD WINAPI connection_watchdog(LPVOID unused)
 {
@@ -70,6 +142,19 @@ int __cdecl main(int argc, char **argv)
     char filter[256];
 
     DWORD parent_id = 0;
+    /* 排障用：不开驱动、不需要管理员，只打印本程序认得的本机 IPv4 地址。
+       反射目的地就从这张表里挑，远程排"接管不上"时可以直接和 ipconfig 对照。 */
+    if (argc == 2 && strcmp(argv[1], "--dump-local-addrs") == 0)
+    {
+        refresh_local_addrs();
+        for (UINT i = 0; i < local_addr_count; i++)
+        {
+            struct in_addr shown;
+            shown.s_addr = local_addrs[i];
+            printf("%s\n", inet_ntoa(shown));
+        }
+        return 0;
+    }
     if (argc == 6)
     {
         game_port = (UINT16)atoi(argv[1]);
@@ -101,6 +186,7 @@ int __cdecl main(int argc, char **argv)
         fprintf(stderr, "WinDivertOpen failed: %lu\n", GetLastError());
         return 1;
     }
+    refresh_local_addrs();
     SetConsoleCtrlHandler(shutdown_handler, TRUE);
     CloseHandle(CreateThread(NULL, 0, connection_watchdog, NULL, 0, NULL));
     if (parent_id != 0) CloseHandle(CreateThread(NULL, 0, watch_parent,
@@ -129,12 +215,15 @@ int __cdecl main(int argc, char **argv)
                 }
                 tcp_header->DstPort = htons(proxy_port);
                 /*
+                 * Reflect to the address this very connection is bound to, so
+                 * the injected inbound packet lands on the same interface it
+                 * left from (Windows drops it otherwise on multi-homed hosts).
                  * Clash/TUN may expose a synthetic 198.18/16 source address
-                 * that is not assigned to a Windows interface. Reflect to
-                 * loopback and remember the original tuple for the return
-                 * packet instead of assuming SrcAddr is locally routable.
+                 * that is not assigned to any interface — fall back to the
+                 * address picked by the caller in that case.
                  */
-                ip_header->DstAddr = proxy_addr;
+                ip_header->DstAddr =
+                    is_local_addr(ip_header->SrcAddr) ? ip_header->SrcAddr : proxy_addr;
                 ip_header->SrcAddr = destination;
                 addr.Outbound = FALSE;
                 addr.Loopback = FALSE;

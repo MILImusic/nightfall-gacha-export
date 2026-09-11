@@ -2,7 +2,15 @@
 // 让用户把它贴给维护者即可定位，不用来回猜四五轮。
 // formatDiagnostics 是纯函数，便于单测；collectDiagnostics 负责实际取数。
 
+const { detectGamePort } = require("./gameport");
+
 const FIREWALL_RULE_NAME = "夜幕之下抽卡记录导出";
+// 本版本随包发布的接管程序（resources/windivert/nightfall-redirect.exe）的 SHA-256。
+// 为什么要记它：直接更新只换 app.asar，接管程序在 asar 外面、不会被换。
+// 所以每当这个 exe 改了，光点「更新版本」的用户拿到的还是旧的接管程序——
+// 必须明说要下载完整包，不能让人以为已经更新好了却还是接管不上。
+// ⚠️ 重编译 exe 后这里必须同步更新，测试「接管程序哈希与随包文件一致」会盯着。
+const REDIRECTOR_SHA256 = "6fb0b141889b072e145866df5beed32b5480b346d83480bc992447f86e63848f";
 const GAME_PORT = 12090;
 // 游戏主进程名，模糊匹配以兼容改名或别的发行版本。
 // 游戏内嵌的浏览器插件进程走 443，不是主连接，因此按端口而非进程数判断状态。
@@ -35,8 +43,10 @@ function classifyDnsResidue(entries) {
 
 // entries 形如 ["ReignofNightfall|203.0.113.10:12090|Established", ...]（游戏进程的外部连接）。
 // 判定游戏此刻处在哪一档：null=未知 / absent=进程没跑 / idle=进程在但没连服务器 /
-// connected=连着 12090（正常）/ other=连着别的端口（端口变了或换了发行版本）。
-function classifyGameState(entries) {
+// connected=连着本工具正在守的端口（正常）/ other=连着别的端口（端口变了或换了发行版本）。
+// expectedPort 传本次实际接管的端口：写死 12090 会让所有非默认端口的用户被误判成 other。
+function classifyGameState(entries, expectedPort = GAME_PORT) {
+  const expected = Number.isInteger(expectedPort) ? expectedPort : GAME_PORT;
   if (entries == null) return null;
   if (!entries.length) return { state: "absent", ports: [] };
   const ports = [];
@@ -46,10 +56,31 @@ function classifyGameState(entries) {
     if (Number.isInteger(port) && !ports.includes(port)) ports.push(port);
   }
   if (!ports.length) return { state: "idle", ports: [] };
-  if (ports.includes(GAME_PORT)) return { state: "connected", ports };
+  if (ports.includes(expected)) return { state: "connected", ports };
   // 443/80 是登录页、公告、CDN 这类附属连接，只有它们说明主连接还没建立。
   const meaningful = ports.filter((port) => port !== 443 && port !== 80);
   return meaningful.length ? { state: "other", ports: meaningful } : { state: "idle", ports };
+}
+
+// 手上这个接管程序是不是本版本该配的那一个。
+// null = 读不到哈希（别猜，也别吓用户）；true = 一致；false = 旧的，需要整包更新。
+function redirectorUpToDate(hash) {
+  if (typeof hash !== "string" || hash.length !== 64) return null;
+  return hash.toLowerCase() === REDIRECTOR_SHA256;
+}
+
+// 这次诊断该按哪个端口去查游戏连接。
+// 病史：这里曾写死 12090，于是所有走 12085/12055 等非默认端口的玩家，
+// 「游戏端口的 TCP 连接」永远报「无」，还附赠一句“你还没连上，去抽卡记录界面”——
+// 明明游戏就连着，指引却把人支去别处。优先级与接管本身一致：
+// 正在接管的端口 > 此刻从游戏进程探到的 > 上次记住的 > 默认。
+function resolveProbePort({ activeGamePort = null, rememberedPort = null, gameConnections = null } = {}) {
+  const valid = (port) => Number.isInteger(port) && port > 0 && port <= 65535;
+  if (valid(activeGamePort)) return activeGamePort;
+  const detected = detectGamePort(gameConnections);
+  if (valid(detected)) return detected;
+  if (valid(rememberedPort)) return rememberedPort;
+  return GAME_PORT;
 }
 
 // profileStates 形如 "Domain=True,Private=True,Public=False"；categories 形如 "Private;Public"。
@@ -135,6 +166,13 @@ function formatDiagnostics(data) {
       ? data.interfaces.map((item) => `  · ${item.name}: ${item.address}`)
       : ["  （无）"]),
     `连接接管驱动是否在运行：${yesNo(data.redirectorAlive)}`,
+    `接管程序是否为本版本：${
+      data.redirectorUpToDate == null
+        ? "未知"
+        : data.redirectorUpToDate
+          ? "是"
+          : "否——是旧的接管程序（直接更新不会替换它，需要下载完整包）"
+    }`,
     `是否已接管游戏连接：${yesNo(data.proxyConnected)}`,
     `检测程序(PowerShell)是否正常：${formatPowerShellProbe(data.powerShellProbe)}`,
     `当前网络的防火墙是否开启：${yesNo(data.firewallEnabled)}${data.firewallEnabled === false ? "（已关闭，无需放行规则）" : ""}`,
@@ -168,7 +206,11 @@ function formatDiagnostics(data) {
           : data.rememberedPort
     }`,
     `本工具接管的端口：${data.activeGamePort ?? GAME_PORT}${data.activeGamePort && data.activeGamePort !== GAME_PORT ? "（已自动适配，非默认值）" : ""}`,
-    `游戏端口(${GAME_PORT})的 TCP 连接：${
+    `游戏端口(${data.probedGamePort ?? resolveProbePort({
+      activeGamePort: data.activeGamePort,
+      rememberedPort: Number.isInteger(data.rememberedPort) ? data.rememberedPort : null,
+      gameConnections: data.gameConnections,
+    })})的 TCP 连接：${
       data.gamePortConnections == null
         ? "未知"
         : data.gamePortConnections.length
@@ -200,6 +242,12 @@ function listIpv4(interfaces) {
 // 顺序即严重程度：HVCI 直接拦驱动 > 防火墙不覆盖 > 系统代理抢流量 > 规则还没建。
 function preflightWarnings(data) {
   const warnings = [];
+  if (data.redirectorUpToDate === false) {
+    warnings.push(
+      "你的接管程序还是旧版本：本次更新修好的「同时连着两条网络就接管不上」在它身上不生效。" +
+        "点「更新版本」只会更新主程序，接管程序要到项目的发布页下载完整压缩包、解压覆盖原来的文件夹才会换。",
+    );
+  }
   if (powerShellProbeBroken(data.powerShellProbe)) {
     warnings.push(
       `本工具的检测程序（PowerShell）没能运行（${formatPowerShellProbe(data.powerShellProbe).split("——")[0]}），防火墙、游戏端口、DNS 等都无法检测：` +
@@ -276,6 +324,7 @@ async function collectDiagnosticsData({
   proxyConnected,
   runPowerShell,
   powerShellProbe = null,
+  redirectorHash = null,
   collectedAt,
   activeGamePort = null,
   elevated = null,
@@ -301,6 +350,7 @@ async function collectDiagnosticsData({
   let gamePortConnections = null;
   let gameConnections = null;
   let dnsEntries = null;
+  let probedGamePort = resolveProbePort({ activeGamePort, rememberedPort });
   if (typeof runPowerShell === "function") {
     try {
       const out = await runPowerShell(
@@ -348,17 +398,9 @@ async function collectDiagnosticsData({
       notes.push(`查询系统代理失败：${error.message}`);
     }
     try {
-      const out = await runPowerShell(
-        `$c = Get-NetTCPConnection -RemotePort ${GAME_PORT} -ErrorAction SilentlyContinue; ` +
-          "($c | ForEach-Object { \"$($_.State) -> $($_.RemoteAddress)\" }) -join ';'",
-      );
-      gamePortConnections = out.trim() ? out.trim().split(";").map((item) => item.trim()).filter(Boolean) : [];
-    } catch (error) {
-      notes.push(`查询游戏端口连接失败：${error.message}`);
-    }
-    try {
-      // 按进程名找游戏，列出它自己的外部连接——比只看 12090 端口更硬：
-      // 能区分"游戏没开"、"游戏开着没连服务器"、"连的不是 12090"三种情况。
+      // 按进程名找游戏，列出它自己的外部连接——比只看某个端口更硬：
+      // 能区分"游戏没开"、"游戏开着没连服务器"、"连的不是我们守的端口"三种情况。
+      // 这一条必须排在按端口查连接之前：端口本身要从这里的结果推。
       const out = await runPowerShell(
         `$g = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '${GAME_PROCESS_HINT.source}' }; ` +
           "$rows = @(); " +
@@ -373,6 +415,16 @@ async function collectDiagnosticsData({
       gameConnections = out.trim() ? out.trim().split(";").map((item) => item.trim()).filter(Boolean) : [];
     } catch (error) {
       notes.push(`查询游戏进程连接失败：${error.message}`);
+    }
+    probedGamePort = resolveProbePort({ activeGamePort, rememberedPort, gameConnections });
+    try {
+      const out = await runPowerShell(
+        `$c = Get-NetTCPConnection -RemotePort ${probedGamePort} -ErrorAction SilentlyContinue; ` +
+          "($c | ForEach-Object { \"$($_.State) -> $($_.RemoteAddress)\" }) -join ';'",
+      );
+      gamePortConnections = out.trim() ? out.trim().split(";").map((item) => item.trim()).filter(Boolean) : [];
+    } catch (error) {
+      notes.push(`查询游戏端口连接失败：${error.message}`);
     }
     try {
       const out = await runPowerShell(
@@ -407,9 +459,13 @@ async function collectDiagnosticsData({
     uacEnabled,
     systemProxyOn,
     systemProxyServer,
+    redirectorUpToDate: redirectorUpToDate(redirectorHash),
     gamePortConnections,
+    probedGamePort,
     gameConnections,
-    gameState: classifyGameState(gameConnections),
+    // 这里刻意用"接管的端口"而不是 probedGamePort：probedGamePort 会回落到
+    // 游戏自己连的端口，拿它比对就永远是 connected，端口不符的黄条再也不会亮。
+    gameState: classifyGameState(gameConnections, Number.isInteger(activeGamePort) ? activeGamePort : GAME_PORT),
     activeGamePort,
     rememberedPort,
     elevated,
@@ -440,4 +496,7 @@ module.exports = {
   listIpv4,
   powerShellProbeBroken,
   preflightWarnings,
+  redirectorUpToDate,
+  resolveProbePort,
+  REDIRECTOR_SHA256,
 };

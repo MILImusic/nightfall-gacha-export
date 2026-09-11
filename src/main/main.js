@@ -41,6 +41,20 @@ function resourcePath(name) {
     : path.join(app.getAppPath(), "resources", name);
 }
 
+// 直接更新只换 app.asar，接管程序在 asar 外面不会被换；算一次它的哈希，
+// 好让诊断和体检能说出"你手上的接管程序是旧的"。读不到就返回 null，不猜。
+let redirectorHashCache;
+function redirectorHash() {
+  if (redirectorHashCache !== undefined) return redirectorHashCache;
+  try {
+    const bytes = require("node:fs").readFileSync(resourcePath("windivert/nightfall-redirect.exe"));
+    redirectorHashCache = require("node:crypto").createHash("sha256").update(bytes).digest("hex");
+  } catch {
+    redirectorHashCache = null;
+  }
+  return redirectorHashCache;
+}
+
 // 记录按账号档案分文件存；老用户的 records.json 首次启动时会被收编为"账号1"。
 async function dataPath() {
   const userData = app.getPath("userData");
@@ -358,8 +372,11 @@ function diagnosticsInputs() {
     proxyConnected: proxy.connected(),
     runPowerShell: process.platform === "win32" ? runDiagnosticsPowerShell : null,
     powerShellProbe: () => powerShellProbeState,
+    redirectorHash: redirectorHash(),
     collectedAt: new Date().toISOString(),
-    activeGamePort,
+    // 接管没在跑的时候不算"正在守某个端口"：activeGamePort 的初值就是默认端口，
+    // 拿它当既成事实会让诊断显示成我们已经在守 12090。
+    activeGamePort: redirectorAlive() ? activeGamePort : null,
   };
 }
 

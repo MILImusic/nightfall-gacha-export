@@ -12,6 +12,9 @@ const {
   isResidueDns,
   listIpv4,
   preflightWarnings,
+  redirectorUpToDate,
+  resolveProbePort,
+  REDIRECTOR_SHA256,
 } = require("../src/main/diagnostics");
 
 test("classifyGameState 分辨游戏的四种状态", () => {
@@ -535,4 +538,90 @@ test("collectDiagnosticsData 在所有探针跑完后读取探针状态（函数
     collectedAt: "2026-09-07T09:13:00.000Z",
   });
   assert.equal(absent.powerShellProbe, null);
+});
+
+// 2026-09-11 报障：玩家的游戏走 12055，诊断却照着写死的 12090 去查，
+// 于是永远报「无——游戏还没有建立连接」，把人支去反复进抽卡记录界面。
+test("诊断按实际接管的端口查连接，不再写死 12090", async () => {
+  const scripts = [];
+  const data = await collectDiagnosticsData({
+    version: "0.2.3",
+    interfaces: {},
+    selectAddress: () => "192.168.0.100",
+    redirectorAlive: true,
+    proxyConnected: false,
+    activeGamePort: 12055,
+    rememberedPort: 12055,
+    runPowerShell: async (script) => {
+      scripts.push(script);
+      if (script.includes("Get-Process")) return "ReignofNightfall|203.0.113.10:12055|Established";
+      if (script.includes("-RemotePort 12055")) return "Established -> 203.0.113.10";
+      return "";
+    },
+    collectedAt: "2026-09-11T10:15:24.000Z",
+  });
+  assert.equal(data.probedGamePort, 12055);
+  assert.equal(scripts.some((script) => script.includes("-RemotePort 12055")), true);
+  assert.equal(scripts.some((script) => script.includes("-RemotePort 12090")), false);
+  assert.deepEqual(data.gamePortConnections, ["Established -> 203.0.113.10"]);
+  assert.equal(formatDiagnostics(data).includes("游戏端口(12055)的 TCP 连接：1 条"), true);
+  // 守着 12055 的时候，游戏连着 12055 就是正常，不许再报「端口不符」。
+  assert.deepEqual(data.gameState, { state: "connected", ports: [12055] });
+  assert.equal(preflightWarnings(data).some((line) => line.includes("端口")), false);
+});
+
+// 反向门：探测端口回落到"游戏自己连的端口"，但判定 connected/other 必须拿
+// 接管的端口比对——否则永远是 connected，端口不符的黄条再也不会亮。
+test("还没接管时，端口不符的黄条照旧要亮", async () => {
+  const data = await collectDiagnosticsData({
+    version: "0.2.3",
+    interfaces: {},
+    selectAddress: () => "192.168.0.100",
+    redirectorAlive: false,
+    proxyConnected: false,
+    activeGamePort: null,
+    runPowerShell: async (script) =>
+      (script.includes("Get-Process") ? "ReignofNightfall|203.0.113.10:12085|Established" : ""),
+    collectedAt: "2026-09-11T10:15:24.000Z",
+  });
+  assert.equal(data.probedGamePort, 12085);
+  assert.deepEqual(data.gameState, { state: "other", ports: [12085] });
+  assert.equal(
+    preflightWarnings(data).some((line) => line.includes("12085") && line.includes("12090")),
+    true,
+  );
+});
+
+// 直接更新换不掉 asar 外面的接管程序。这条测试盯着常量与随包 exe 一致，
+// 否则"你的接管程序是旧的"这句提示要么永远不说，要么对所有人乱说。
+test("接管程序哈希与随包文件一致", () => {
+  const fs = require("node:fs");
+  const crypto = require("node:crypto");
+  const path = require("node:path");
+  const bytes = fs.readFileSync(
+    path.join(__dirname, "..", "resources", "windivert", "nightfall-redirect.exe"),
+  );
+  const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+  assert.equal(actual, REDIRECTOR_SHA256);
+  assert.equal(redirectorUpToDate(actual), true);
+  assert.equal(redirectorUpToDate(actual.toUpperCase()), true);
+  assert.equal(redirectorUpToDate("0".repeat(64)), false);
+  // 读不到哈希时不许猜，更不许吓用户
+  assert.equal(redirectorUpToDate(null), null);
+  assert.equal(redirectorUpToDate("短的"), null);
+  assert.deepEqual(preflightWarnings({ redirectorUpToDate: null }), []);
+  assert.equal(
+    preflightWarnings({ redirectorUpToDate: false }).some((line) => line.includes("完整压缩包")),
+    true,
+  );
+});
+
+test("resolveProbePort 的优先级：接管中 > 探到的 > 记住的 > 默认", () => {
+  const connections = ["ReignofNightfall|203.0.113.10:12085|Established"];
+  assert.equal(resolveProbePort({ activeGamePort: 12055, rememberedPort: 12090, gameConnections: connections }), 12055);
+  assert.equal(resolveProbePort({ rememberedPort: 12090, gameConnections: connections }), 12085);
+  assert.equal(resolveProbePort({ rememberedPort: 12085 }), 12085);
+  assert.equal(resolveProbePort({}), 12090);
+  // 端口记忆文件损坏时 rememberedPort 是字符串 "unreadable"，不能当端口用
+  assert.equal(resolveProbePort({ rememberedPort: "unreadable" }), 12090);
 });
